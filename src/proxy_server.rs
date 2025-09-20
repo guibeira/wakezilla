@@ -2,7 +2,7 @@ use crate::connection_pool::ConnectionPool;
 use anyhow::Result;
 use askama_axum::Template;
 use axum::{
-    extract::{Form, State},
+    extract::{Form, Query, State},
     response::{IntoResponse, Json, Redirect},
     routing::{get, post},
     Router,
@@ -55,6 +55,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/", get(show_machines))
         .route("/scan", get(scan_network_handler))
+        .route("/interfaces", get(list_interfaces_handler))
         .route("/machines", post(add_machine))
         .route("/machines/delete", post(delete_machine))
         .route("/machines/health", post(machine_health))
@@ -83,11 +84,22 @@ struct MachineDetailTemplate {
     machine: Machine,
 }
 
-async fn scan_network_handler() -> impl IntoResponse {
-    match scanner::scan_network().await {
+async fn scan_network_handler(Query(params): Query<HashMap<String, String>>) -> impl IntoResponse {
+    let interface = params.get("interface").map(|s| s.as_str());
+    match scanner::scan_network_with_interface(interface).await {
         Ok(devices) => Ok(Json(devices)),
         Err(e) => {
             error!("Network scan failed: {}", e);
+            Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+async fn list_interfaces_handler() -> impl IntoResponse {
+    match scanner::list_interfaces().await {
+        Ok(interfaces) => Ok(Json(interfaces)),
+        Err(e) => {
+            error!("Failed to list interfaces: {}", e);
             Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
         }
     }

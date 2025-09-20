@@ -30,10 +30,16 @@
         <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">Wake, manage, and forward to your registered machines.
         </p>
       </div>
-      <button id="scan-btn"
-        class="inline-flex items-center justify-center rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-gray-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800">
-        🔍 Scan Network
-      </button>
+      <div class="flex items-center gap-2">
+        <select id="interface-select"
+          class="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium shadow-sm transition hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800">
+          <option value="">Auto-detect interface</option>
+        </select>
+        <button id="scan-btn"
+          class="inline-flex items-center justify-center rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium shadow-sm transition hover:bg-gray-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800">
+          🔍 Scan Network
+        </button>
+      </div>
     </header>
     <!-- Discovered devices -->
     <section id="scan-results-container" class="hidden">
@@ -290,12 +296,34 @@
     });
 
     const scanBtn = document.getElementById('scan-btn');
+    const interfaceSelect = document.getElementById('interface-select');
     const resultsContainer = document.getElementById('scan-results-container');
     const resultsTableBody = document.querySelector('#scan-results-table tbody');
     const scanStatus = document.getElementById('scan-status');
 
     function showResults() {
       resultsContainer.classList.remove('hidden');
+    }
+
+    // Load available interfaces
+    async function loadInterfaces() {
+      try {
+        const response = await fetch('/interfaces');
+        if (!response.ok) throw new Error('Failed to load interfaces');
+        const interfaces = await response.json();
+        
+        // Clear existing options except the first one
+        interfaceSelect.innerHTML = '<option value="">Auto-detect interface</option>';
+        
+        interfaces.forEach(iface => {
+          const option = document.createElement('option');
+          option.value = iface.name;
+          option.textContent = `${iface.name} (${iface.ip})`;
+          interfaceSelect.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load interfaces:', error);
+      }
     }
 
     scanBtn.addEventListener('click', async () => {
@@ -306,7 +334,9 @@
       showResults();
 
       try {
-        const response = await fetch('/scan');
+        const selectedInterface = interfaceSelect.value;
+        const url = selectedInterface ? `/scan?interface=${encodeURIComponent(selectedInterface)}` : '/scan';
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Network scan failed');
         const devices = await response.json();
 
@@ -471,6 +501,7 @@
 
     // Initial health check and periodic updates
     document.addEventListener('DOMContentLoaded', function () {
+      loadInterfaces();
       checkAllMachineHealth();
 
       // Check health every 30 seconds
