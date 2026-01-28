@@ -8,6 +8,8 @@ use ratatui::{
 
 use crate::app::{App, Notification, NotificationLevel, Tab};
 use crate::screens;
+use crate::screens::add_machine::AddFocusArea;
+use crate::screens::detail::FocusArea;
 use crate::theme;
 
 pub fn render(f: &mut Frame, app: &mut App) {
@@ -110,10 +112,18 @@ fn render_footer(f: &mut Frame, area: Rect, app: &App) {
                 "j/k navigate │ h/l switch panel │ Enter scan/add │ Tab switch tab │ :q quit"
             }
             Some(Tab::Detail(_)) => {
-                "j/k fields │ i insert │ Esc normal │ Space toggle │ s save │ w wake │ t turn off │ d delete │ Tab switch tab │ :q quit"
+                if app.detail_state.as_ref().map_or(false, |s| s.focus_area == FocusArea::PortForwards) {
+                    "j/k rows │ i edit │ a add row │ x delete row │ h fields │ Tab col │ s save │ :q quit"
+                } else {
+                    "j/k fields │ i insert │ l port fwds │ Space toggle │ s save │ w wake │ t off │ d del │ :q quit"
+                }
             }
             Some(Tab::AddMachine) => {
-                "j/k fields │ i insert │ Esc normal │ Space toggle │ s/Enter submit │ Tab switch tab │ :q quit"
+                if app.add_machine_state.focus_area == AddFocusArea::PortForwards {
+                    "j/k rows │ i edit │ a add row │ x delete row │ h fields │ Tab col │ s submit │ :q quit"
+                } else {
+                    "j/k fields │ i insert │ l port fwds │ Space toggle │ s/Enter submit │ :q quit"
+                }
             }
             None => ":q quit",
         };
