@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Wrap},
     Frame,
 };
 use wakezilla_common::Machine;
@@ -27,6 +27,7 @@ pub struct MachineDetailState {
     pub focus_area: FocusArea,
     pub pf_selected: usize,
     pub pf_column: usize, // 0=name, 1=local_port, 2=target_port
+    pub pf_table_state: TableState,
 }
 
 pub struct PortForwardRow {
@@ -69,6 +70,7 @@ impl MachineDetailState {
             focus_area: FocusArea::Fields,
             pf_selected: 0,
             pf_column: 0,
+            pf_table_state: TableState::default(),
         }
     }
 
@@ -174,7 +176,7 @@ impl MachineDetailState {
     }
 }
 
-pub fn render(f: &mut Frame, area: Rect, state: &MachineDetailState) {
+pub fn render(f: &mut Frame, area: Rect, state: &mut MachineDetailState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(10), Constraint::Length(8)])
@@ -245,6 +247,12 @@ pub fn render(f: &mut Frame, area: Rect, state: &MachineDetailState) {
     f.render_widget(para, chunks[0]);
 
     // Port forwards table
+    let pf_border_color = if state.focus_area == FocusArea::PortForwards {
+        theme::BLUE
+    } else {
+        theme::SURFACE2
+    };
+
     let pf_header = Row::new(vec![
         Cell::from("Name").style(Style::default().fg(theme::MAUVE).add_modifier(Modifier::BOLD)),
         Cell::from("Local Port")
@@ -257,14 +265,46 @@ pub fn render(f: &mut Frame, area: Rect, state: &MachineDetailState) {
     let pf_rows: Vec<Row> = state
         .port_forwards
         .iter()
-        .map(|pf| {
+        .enumerate()
+        .map(|(i, pf)| {
+            let selected = state.focus_area == FocusArea::PortForwards && i == state.pf_selected;
+            let editing = selected && state.mode == DetailMode::Insert;
+
+            let name_style = if editing && state.pf_column == 0 {
+                Style::default().fg(theme::YELLOW)
+            } else if selected {
+                Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::TEXT)
+            };
+            let lp_style = if editing && state.pf_column == 1 {
+                Style::default().fg(theme::YELLOW)
+            } else if selected {
+                Style::default().fg(theme::SUBTEXT0).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::SUBTEXT0)
+            };
+            let tp_style = if editing && state.pf_column == 2 {
+                Style::default().fg(theme::YELLOW)
+            } else if selected {
+                Style::default().fg(theme::SUBTEXT0).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::SUBTEXT0)
+            };
+
             Row::new(vec![
-                Cell::from(pf.name.clone()).style(Style::default().fg(theme::TEXT)),
-                Cell::from(pf.local_port.clone()).style(Style::default().fg(theme::SUBTEXT0)),
-                Cell::from(pf.target_port.clone()).style(Style::default().fg(theme::SUBTEXT0)),
+                Cell::from(pf.name.clone()).style(name_style),
+                Cell::from(pf.local_port.clone()).style(lp_style),
+                Cell::from(pf.target_port.clone()).style(tp_style),
             ])
         })
         .collect();
+
+    let pf_title = if state.port_forwards.is_empty() {
+        " Port Forwards (a to add) "
+    } else {
+        " Port Forwards "
+    };
 
     let pf_table = Table::new(
         pf_rows,
@@ -278,12 +318,21 @@ pub fn render(f: &mut Frame, area: Rect, state: &MachineDetailState) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme::SURFACE2))
-            .title(" Port Forwards ")
+            .border_style(Style::default().fg(pf_border_color))
+            .title(pf_title)
             .title_style(Style::default().fg(theme::BLUE)),
+    )
+    .row_highlight_style(
+        Style::default()
+            .add_modifier(Modifier::BOLD),
     );
 
-    f.render_widget(pf_table, chunks[1]);
+    if state.focus_area == FocusArea::PortForwards && !state.port_forwards.is_empty() {
+        state.pf_table_state.select(Some(state.pf_selected));
+    } else {
+        state.pf_table_state.select(None);
+    }
+    f.render_stateful_widget(pf_table, chunks[1], &mut state.pf_table_state);
 }
 
 pub fn render_confirm_delete(f: &mut Frame, area: Rect) {
