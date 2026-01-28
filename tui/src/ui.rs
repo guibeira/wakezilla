@@ -79,7 +79,7 @@ fn render_content(f: &mut Frame, area: Rect, app: &mut App) {
             }
         }
         Some(Tab::AddMachine) => {
-            screens::add_machine::render(f, area, &app.add_machine_state);
+            screens::add_machine::render(f, area, &mut app.add_machine_state);
         }
         None => {}
     }

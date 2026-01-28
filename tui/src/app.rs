@@ -5,7 +5,7 @@ use wakezilla_common::{AddMachineForm, MachinePayload, PortForward};
 
 use crate::client::ApiClient;
 use crate::screens::{
-    add_machine::AddMachineState,
+    add_machine::{AddFocusArea, AddMachineState},
     detail::{DetailMode, FocusArea, MachineDetailState},
     machines::MachinesState,
     scanner::{Panel, ScannerState},
@@ -217,7 +217,19 @@ impl App {
             turn_off_port: state.turn_off_port.parse().ok(),
             can_be_turned_off: state.can_be_turned_off,
             inactivity_period: state.inactivity_period.parse().ok(),
-            port_forwards: None,
+            port_forwards: Some(
+                state
+                    .port_forwards
+                    .iter()
+                    .filter_map(|pf| {
+                        Some(PortForward {
+                            name: pf.name.clone(),
+                            local_port: pf.local_port.parse().ok()?,
+                            target_port: pf.target_port.parse().ok()?,
+                        })
+                    })
+                    .collect(),
+            ),
         };
         let client = self.client.clone();
         let tx = self.api_tx.clone();
@@ -745,14 +757,34 @@ impl App {
     }
 
     fn handle_add_machine_key(&mut self, key: KeyEvent) {
-        if self.add_machine_state.inserting {
+        let in_insert = self.add_machine_state.inserting;
+        let in_pf = self.add_machine_state.focus_area == AddFocusArea::PortForwards;
+
+        // INSERT mode in port forwards
+        if in_insert && in_pf {
             match key.code {
-                KeyCode::Esc => {
-                    self.add_machine_state.inserting = false;
+                KeyCode::Esc => self.add_machine_state.inserting = false,
+                KeyCode::Tab => self.add_machine_state.pf_next_column(),
+                KeyCode::Backspace => {
+                    if let Some(field) = self.add_machine_state.pf_current_field_mut() {
+                        field.pop();
+                    }
                 }
-                KeyCode::Tab => {
-                    self.add_machine_state.next_field();
+                KeyCode::Char(c) => {
+                    if let Some(field) = self.add_machine_state.pf_current_field_mut() {
+                        field.push(c);
+                    }
                 }
+                _ => {}
+            }
+            return;
+        }
+
+        // INSERT mode in fields
+        if in_insert {
+            match key.code {
+                KeyCode::Esc => self.add_machine_state.inserting = false,
+                KeyCode::Tab => self.add_machine_state.next_field(),
                 KeyCode::Backspace => {
                     if let Some(field) = self.add_machine_state.current_field_mut() {
                         field.pop();
@@ -771,18 +803,47 @@ impl App {
             return;
         }
 
+        // NORMAL mode in port forwards
+        if in_pf {
+            match key.code {
+                KeyCode::Char('j') | KeyCode::Down => self.add_machine_state.pf_next(),
+                KeyCode::Char('k') | KeyCode::Up => self.add_machine_state.pf_previous(),
+                KeyCode::Char('h') | KeyCode::Left => {
+                    self.add_machine_state.focus_area = AddFocusArea::Fields;
+                }
+                KeyCode::Char('i') => self.add_machine_state.inserting = true,
+                KeyCode::Char('a') => {
+                    self.add_machine_state.pf_add_row();
+                    self.add_machine_state.inserting = true;
+                }
+                KeyCode::Char('x') => self.add_machine_state.pf_delete_row(),
+                KeyCode::Char('s') => self.submit_add_machine(),
+                KeyCode::Tab => {
+                    self.active_tab_index = (self.active_tab_index + 1) % self.tabs.len();
+                }
+                KeyCode::BackTab => {
+                    self.active_tab_index = if self.active_tab_index == 0 {
+                        self.tabs.len() - 1
+                    } else {
+                        self.active_tab_index - 1
+                    };
+                }
+                KeyCode::Char(':') => self.colon_pressed = true,
+                _ => {}
+            }
+            return;
+        }
+
+        // NORMAL mode in fields
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => self.add_machine_state.next_field(),
             KeyCode::Char('k') | KeyCode::Up => self.add_machine_state.prev_field(),
-            KeyCode::Char('i') => {
-                self.add_machine_state.inserting = true;
+            KeyCode::Char('l') | KeyCode::Right => {
+                self.add_machine_state.focus_area = AddFocusArea::PortForwards;
             }
-            KeyCode::Char(' ') => {
-                self.add_machine_state.toggle_boolean();
-            }
-            KeyCode::Char('s') | KeyCode::Enter => {
-                self.submit_add_machine();
-            }
+            KeyCode::Char('i') => self.add_machine_state.inserting = true,
+            KeyCode::Char(' ') => self.add_machine_state.toggle_boolean(),
+            KeyCode::Char('s') | KeyCode::Enter => self.submit_add_machine(),
             KeyCode::Tab => {
                 self.active_tab_index = (self.active_tab_index + 1) % self.tabs.len();
             }
@@ -793,9 +854,7 @@ impl App {
                     self.active_tab_index - 1
                 };
             }
-            KeyCode::Char(':') => {
-                self.colon_pressed = true;
-            }
+            KeyCode::Char(':') => self.colon_pressed = true,
             _ => {}
         }
     }
