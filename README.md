@@ -38,6 +38,11 @@ brew install wakezilla
 
 ### Using pre-built docker image
 
+> Docker images are published automatically on every `v*` release tag.
+> Supported platforms: `linux/amd64`, `linux/arm64`.
+> Stable releases move `guibeira/wakezilla:latest`; prerelease tags publish versioned tags only.
+> Prefer `guibeira/wakezilla:<version>` for pinned server deployments.
+
 1. **Run the proxy server**:
 ```bash
 docker run -d \
