@@ -5,56 +5,75 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build:
+  fmt:
+    name: fmt
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 🔧 Setup Rust toolchain (nightly) and wasm target
-        run: rustup toolchain install nightly --allow-downgrade
-
-      - name: Setup Rust toolchain and wasm target
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: ⚡ Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . frontend
-
-      - name: Cache Cargo bin directory
-        uses: actions/cache@v4
-        id: cache-cargo-bin
-        with:
-          path: ~/.cargo/bin
-          key: ${{ runner.os }}-cargo-bin-v1
-          restore-keys: |
-            ${{ runner.os }}-cargo-bin-
-
-      - name: Install Trunk
-        if: steps.cache-cargo-bin.outputs.cache-hit != 'true'
-        run: |
-          if ! command -v trunk &> /dev/null; then
-            cargo install trunk
-          fi
-
-      - name: Install Tarpaulin
-        if: steps.cache-cargo-bin.outputs.cache-hit != 'true'
-        run: |
-          if ! command -v cargo-tarpaulin &> /dev/null; then
-            cargo install cargo-tarpaulin
-          fi
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup nightly Rust toolchain and wasm target
+        run: rustup toolchain install nightly --profile minimal --target wasm32-unknown-unknown --allow-downgrade
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: frontend
+
+      - name: Install Trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
       - name: Build frontend
+        env:
+          NO_COLOR: "true"
         run: cd frontend && trunk build --release
 
-      - name: Run tests with tarpaulin
-        env:
-          RUSTFLAGS: -C debuginfo=2
-        run: cargo tarpaulin --workspace --timeout 180 --out Xml
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            frontend
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Prepare frontend assets for backend tests
+        run: |
+          mkdir -p target/frontend-dist target/llvm-cov-target/frontend-dist
+          printf '<!doctype html><html><head><title>wakezilla</title></head><body></body></html>\n' | tee target/frontend-dist/index.html > target/llvm-cov-target/frontend-dist/index.html
+
+      - name: Run tests with cargo-llvm-cov
+        run: cargo llvm-cov --workspace --cobertura --output-path cobertura.xml
