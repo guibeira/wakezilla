@@ -25,6 +25,7 @@ include = [
     "frontend/src/**",
     "frontend/style/**",
     "frontend/public/**",
+    "frontend-dist/**",
     "build.rs",
     "common/Cargo.toml",
     "common/src/**",

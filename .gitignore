@@ -1,4 +1,5 @@
 /target
 frontend/target
 dist
+frontend-dist
 machines.json

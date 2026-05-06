@@ -11,9 +11,11 @@ fn main() {
     println!("cargo:rerun-if-changed=frontend/Cargo.toml");
     println!("cargo:rerun-if-changed=frontend/Cargo.lock");
     println!("cargo:rerun-if-changed=frontend/public");
+    println!("cargo:rerun-if-changed=frontend-dist");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("missing CARGO_MANIFEST_DIR");
     let frontend_dir = Path::new(&manifest_dir).join("frontend");
+    let prebuilt_frontend_dist_dir = Path::new(&manifest_dir).join("frontend-dist");
     let cargo_target_dir = env::var("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| Path::new(&manifest_dir).join("target"));
@@ -34,8 +36,16 @@ fn main() {
     }
 
     if !frontend_dir.is_dir() {
-        create_placeholder_frontend(&frontend_dist_dir);
-        return;
+        if prebuilt_frontend_dist_dir.join("index.html").is_file() {
+            copy_dir_all(&prebuilt_frontend_dist_dir, &frontend_dist_dir);
+            return;
+        }
+
+        panic!(
+            "frontend assets not found: expected either `{}` or `{}`",
+            frontend_dir.display(),
+            prebuilt_frontend_dist_dir.join("index.html").display()
+        );
     }
 
     ensure_tool_or_install("trunk", &["install", "trunk", "--locked"]);
@@ -88,23 +98,51 @@ fn main() {
     );
 }
 
-fn create_placeholder_frontend(frontend_dist_dir: &Path) {
-    fs::create_dir_all(frontend_dist_dir).unwrap_or_else(|err| {
+fn copy_dir_all(src: &Path, dst: &Path) {
+    if dst.exists() {
+        fs::remove_dir_all(dst).unwrap_or_else(|err| {
+            panic!(
+                "failed to clean frontend dist directory `{}`: {err}",
+                dst.display()
+            )
+        });
+    }
+
+    fs::create_dir_all(dst).unwrap_or_else(|err| {
         panic!(
             "failed to create frontend dist directory `{}`: {err}",
-            frontend_dist_dir.display()
+            dst.display()
         )
     });
-    fs::write(
-        frontend_dist_dir.join("index.html"),
-        "<!doctype html><html><body><h1>Wakezilla</h1><p>Frontend assets are unavailable in this source package.</p></body></html>",
-    )
-    .unwrap_or_else(|err| {
+
+    for entry in fs::read_dir(src).unwrap_or_else(|err| {
         panic!(
-            "failed to write placeholder frontend index at `{}`: {err}",
-            frontend_dist_dir.display()
+            "failed to read frontend dist directory `{}`: {err}",
+            src.display()
         )
-    });
+    }) {
+        let entry = entry.expect("failed to read frontend dist entry");
+        let file_type = entry.file_type().unwrap_or_else(|err| {
+            panic!(
+                "failed to read file type for frontend asset `{}`: {err}",
+                entry.path().display()
+            )
+        });
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+
+        if file_type.is_dir() {
+            copy_dir_all(&from, &to);
+        } else {
+            fs::copy(&from, &to).unwrap_or_else(|err| {
+                panic!(
+                    "failed to copy frontend asset `{}` to `{}`: {err}",
+                    from.display(),
+                    to.display()
+                )
+            });
+        }
+    }
 }
 
 fn ensure_tool_or_install(tool: &str, cargo_install_args: &[&str]) {

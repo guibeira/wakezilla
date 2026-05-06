@@ -195,6 +195,29 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
 
+      - name: Setup frontend build toolchain
+        shell: bash
+        run: |
+          rustup toolchain install nightly --allow-downgrade
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+          cargo install trunk --locked
+          cargo install wasm-bindgen-cli --locked
+
+      - name: Build packaged frontend assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf frontend-dist
+          cd frontend
+          trunk build --release --dist ../frontend-dist
+          test -f ../frontend-dist/index.html
+
+      - name: Verify frontend assets are packaged
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo package -p wakezilla --list --allow-dirty | grep '^frontend-dist/index.html$'
+
       - name: Dry-run publish
         shell: bash
         run: cargo publish -p wakezilla --dry-run --no-verify --token "${CARGO_REGISTRY_TOKEN}"
