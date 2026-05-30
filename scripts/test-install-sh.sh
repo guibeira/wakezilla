@@ -261,7 +261,7 @@ while [ "\$#" -gt 0 ]; do
 done
 
 case "\$url" in
-  https://api.github.com/repos/guibeira/wakezilla/releases/tags/v0.1.49|https://api.github.com/repos/guibeira/wakezilla/releases/latest)
+  https://api.github.com/repos/guibeira/wakezilla/releases/tags/v0.1.49)
     cat "$temp_dir/release.json"
     ;;
   https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz)
