@@ -657,6 +657,39 @@ if test_install_release_json_helpers_defined; then
   test_install_bin_fallback_replaces_symlink
 fi
 
+test_path_guidance_helpers_defined() {
+  missing=0
+  assert_command_exists path_guidance "path guidance helper" || missing=1
+  [ "$missing" -eq 0 ]
+}
+
+test_path_guidance_when_missing() {
+  output=$(PATH=/usr/bin SHELL=/bin/zsh path_guidance /tmp/wakezilla-bin)
+  assert_contains "$output" "add /tmp/wakezilla-bin to your PATH" "path guidance missing"
+  assert_contains "$output" ".zshrc" "zsh rc guidance"
+}
+
+test_path_guidance_when_present() {
+  output=$(PATH="/tmp/wakezilla-bin:/usr/bin" SHELL=/bin/zsh path_guidance /tmp/wakezilla-bin)
+  assert_eq "" "$output" "no path guidance when present"
+}
+
+test_path_guidance_when_home_unset() {
+  output=$(
+    unset HOME || true
+    unset PATH || true
+    SHELL=/bin/zsh path_guidance /tmp/wakezilla-bin
+  )
+  assert_contains "$output" "add /tmp/wakezilla-bin to your PATH" "path guidance without HOME"
+  assert_contains "$output" "export PATH=\"/tmp/wakezilla-bin:\$PATH\"" "path guidance without HOME export"
+}
+
+if test_path_guidance_helpers_defined; then
+  test_path_guidance_when_missing
+  test_path_guidance_when_present
+  test_path_guidance_when_home_unset
+fi
+
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
   exit 1

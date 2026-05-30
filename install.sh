@@ -270,6 +270,58 @@ extract_binary() {
   printf '%s\n' "$bin_file"
 }
 
+path_guidance() {
+  bin_dir="$1"
+  case ":${PATH:-}:" in
+    *":$bin_dir:"*) return 0 ;;
+  esac
+
+  shell_path="${SHELL:-sh}"
+  shell_name="${shell_path##*/}"
+  printf '\nadd %s to your PATH.\n' "$bin_dir"
+  case "$shell_name" in
+    bash)
+      if [ "$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then
+        rc="${HOME:-}/.bash_profile"
+      else
+        rc="${HOME:-}/.bashrc"
+      fi
+      if [ -n "${HOME:-}" ]; then
+        printf 'For bash:\n'
+        printf '  echo '\''export PATH="%s:$PATH"'\'' >> %s\n' "$bin_dir" "$rc"
+        printf '  source %s\n' "$rc"
+      else
+        printf 'For bash:\n'
+        printf '  export PATH="%s:$PATH"\n' "$bin_dir"
+      fi
+      ;;
+    zsh)
+      if [ -n "${ZDOTDIR:-}" ]; then
+        rc="$ZDOTDIR/.zshrc"
+      elif [ -n "${HOME:-}" ]; then
+        rc="$HOME/.zshrc"
+      else
+        rc=
+      fi
+      printf 'For zsh:\n'
+      if [ -n "$rc" ]; then
+        printf '  echo '\''export PATH="%s:$PATH"'\'' >> %s\n' "$bin_dir" "$rc"
+        printf '  source %s\n' "$rc"
+      else
+        printf '  export PATH="%s:$PATH"\n' "$bin_dir"
+      fi
+      ;;
+    fish)
+      printf 'For fish:\n'
+      printf '  fish_add_path %s\n' "$bin_dir"
+      ;;
+    *)
+      printf 'For your current shell:\n'
+      printf '  export PATH="%s:$PATH"\n' "$bin_dir"
+      ;;
+  esac
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -336,3 +388,4 @@ fi
 info "resolved $BIN_NAME v$release_version"
 info "asset: $asset_url"
 info "install dir: $bin_dir"
+path_guidance "$bin_dir"
