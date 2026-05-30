@@ -229,8 +229,15 @@ install_bin() {
   if command -v install >/dev/null 2>&1; then
     install -m 755 "$src" "$dst"
   else
-    cp "$src" "$dst"
-    chmod 755 "$dst"
+    dst_dir=$(dirname "$dst")
+    dst_tmp="$dst_dir/.${BIN_NAME:-wakezilla}.install.$$"
+    rm -f "$dst_tmp"
+    if cp "$src" "$dst_tmp" && chmod 755 "$dst_tmp" && mv -f "$dst_tmp" "$dst"; then
+      return 0
+    fi
+    status=$?
+    rm -f "$dst_tmp"
+    return "$status"
   fi
 }
 
@@ -312,11 +319,18 @@ mkdir -p "$bin_dir" || err "install" "failed to create install directory: $bin_d
 bin_file=$(extract_binary "$archive" "$tmpdir/extract" "$BIN_NAME")
 install_bin "$bin_file" "$bin_dir/$BIN_NAME" || err "install" "failed to install binary to $bin_dir/$BIN_NAME"
 
-installed_version=$("$bin_dir/$BIN_NAME" --version 2>/dev/null | awk '{print $NF}' || echo "")
-if [ -n "$installed_version" ]; then
+set +e
+version_output=$("$bin_dir/$BIN_NAME" --version 2>/dev/null)
+version_status=$?
+set -e
+installed_version=
+if [ "$version_status" -eq 0 ]; then
+  installed_version=$(printf '%s\n' "$version_output" | awk 'NF { value=$NF } END { print value }')
+fi
+if [ "$version_status" -eq 0 ] && [ -n "$installed_version" ]; then
   info "installed $BIN_NAME v$installed_version to $bin_dir/$BIN_NAME"
 else
-  warn "$BIN_NAME installed, but '$BIN_NAME --version' produced no output"
+  warn "$BIN_NAME installed, but '$BIN_NAME --version' failed or produced no output"
 fi
 
 info "resolved $BIN_NAME v$release_version"

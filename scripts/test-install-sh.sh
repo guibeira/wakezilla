@@ -65,6 +65,13 @@ write_stub_command() {
   chmod +x "$command_path"
 }
 
+write_exec_wrapper() {
+  command_path="$1"
+  real_command="$2"
+  printf '#!/bin/sh\nexec "%s" "$@"\n' "$real_command" > "$command_path"
+  chmod +x "$command_path"
+}
+
 write_install_dependency_stubs() {
   bin_dir="$1"
   real_tar=$(command -v tar)
@@ -72,8 +79,7 @@ write_install_dependency_stubs() {
   real_shasum=$(command -v shasum 2>/dev/null || true)
   mkdir -p "$bin_dir"
   write_stub_command "$bin_dir/curl"
-  printf '#!/usr/bin/env sh\nexec "%s" "$@"\n' "$real_tar" > "$bin_dir/tar"
-  chmod +x "$bin_dir/tar"
+  write_exec_wrapper "$bin_dir/tar" "$real_tar"
   cat > "$bin_dir/sha256sum" <<SH
 #!/usr/bin/env sh
 if [ -n "$real_sha256sum" ]; then
@@ -115,7 +121,11 @@ if [ -n "$output" ]; then
     *)
       temp_dir=$(mktemp -d)
       mkdir -p "$temp_dir/archive"
-      printf '#!/usr/bin/env sh\nprintf "wakezilla 0.1.49\\n"\n' > "$temp_dir/archive/wakezilla"
+      if [ "${WAKEZILLA_FAKE_VERSION_EXITS_NONZERO:-}" = "1" ]; then
+        printf '#!/usr/bin/env sh\nif [ "${1:-}" = "--version" ]; then\n  printf "wakezilla 0.1.49\\n"\n  exit 1\nfi\nexit 0\n' > "$temp_dir/archive/wakezilla"
+      else
+        printf '#!/usr/bin/env sh\nprintf "wakezilla 0.1.49\\n"\n' > "$temp_dir/archive/wakezilla"
+      fi
       chmod +x "$temp_dir/archive/wakezilla"
       tar -C "$temp_dir/archive" -czf "$output" wakezilla
       rm -rf "$temp_dir"
@@ -185,6 +195,29 @@ test_no_args_resolves_release_metadata() {
   rm -rf "$temp_dir"
 }
 
+test_version_command_nonzero_warns() {
+  temp_dir=$(mktemp -d)
+  old_path="$PATH"
+  write_install_dependency_stubs "$temp_dir/bin"
+  write_fixture_curl "$temp_dir/bin/curl"
+  TARGET=x86_64-unknown-linux-gnu
+  BIN_DIR="$temp_dir/install-bin"
+  WAKEZILLA_FAKE_CURL_FIXTURE="$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
+  WAKEZILLA_FAKE_VERSION_EXITS_NONZERO=1
+  PATH="$temp_dir/bin:$PATH"
+  export TARGET BIN_DIR WAKEZILLA_FAKE_CURL_FIXTURE WAKEZILLA_FAKE_VERSION_EXITS_NONZERO PATH
+  run_script
+  unset TARGET BIN_DIR WAKEZILLA_FAKE_CURL_FIXTURE WAKEZILLA_FAKE_VERSION_EXITS_NONZERO
+  PATH="$old_path"
+  export PATH
+
+  assert_eq "0" "$status" "version command nonzero install status"
+  assert_contains "$output" "warning: wakezilla installed, but 'wakezilla --version' failed or produced no output" "version command nonzero warning"
+  assert_not_contains "$output" "installed wakezilla v0.1.49 to $temp_dir/install-bin/wakezilla" "version command nonzero success message"
+
+  rm -rf "$temp_dir"
+}
+
 test_missing_dependency_reports_hint() {
   temp_dir=$(mktemp -d)
   mkdir -p "$temp_dir/bin"
@@ -245,6 +278,7 @@ test_mode_sources_cleanly() {
 
 test_help_includes_required_docs
 test_no_args_resolves_release_metadata
+test_version_command_nonzero_warns
 test_missing_dependency_reports_hint
 test_unknown_args_fail_with_parser_error
 test_mode_executes_cleanly
@@ -550,6 +584,22 @@ test_extract_binary_from_tarball() {
   rm -rf "$temp_dir"
 }
 
+test_extract_binary_from_nested_tarball() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/archive/nested"
+  printf '#!/usr/bin/env sh\nprintf "wakezilla 0.1.49\\n"\n' > "$temp_dir/archive/nested/wakezilla"
+  chmod +x "$temp_dir/archive/nested/wakezilla"
+  tar -C "$temp_dir/archive" -czf "$temp_dir/wakezilla.tar.gz" nested/wakezilla
+
+  extracted=$(extract_binary "$temp_dir/wakezilla.tar.gz" "$temp_dir/out" wakezilla)
+  if [ ! -x "$extracted" ]; then
+    fail "extract nested binary: expected executable at $extracted"
+  fi
+  assert_contains "$extracted" "/nested/wakezilla" "extract nested binary path"
+
+  rm -rf "$temp_dir"
+}
+
 test_install_bin_sets_executable() {
   temp_dir=$(mktemp -d)
   mkdir -p "$temp_dir/bin"
@@ -563,6 +613,38 @@ test_install_bin_sets_executable() {
   rm -rf "$temp_dir"
 }
 
+test_install_bin_fallback_replaces_symlink() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/path" "$temp_dir/bin"
+  write_exec_wrapper "$temp_dir/path/dirname" "$(command -v dirname)"
+  write_exec_wrapper "$temp_dir/path/rm" "$(command -v rm)"
+  write_exec_wrapper "$temp_dir/path/cp" "$(command -v cp)"
+  write_exec_wrapper "$temp_dir/path/chmod" "$(command -v chmod)"
+  write_exec_wrapper "$temp_dir/path/mv" "$(command -v mv)"
+
+  printf '#!/usr/bin/env sh\nexit 0\n' > "$temp_dir/src"
+  printf 'outside\n' > "$temp_dir/outside"
+  ln -s "$temp_dir/outside" "$temp_dir/bin/wakezilla"
+
+  old_path="$PATH"
+  PATH="$temp_dir/path"
+  export PATH
+  install_bin "$temp_dir/src" "$temp_dir/bin/wakezilla"
+  PATH="$old_path"
+  export PATH
+
+  if [ -L "$temp_dir/bin/wakezilla" ]; then
+    fail "install bin fallback symlink: expected destination symlink to be replaced"
+  fi
+  outside=$(cat "$temp_dir/outside")
+  assert_eq "outside" "$outside" "install bin fallback symlink target unchanged"
+  if [ ! -x "$temp_dir/bin/wakezilla" ]; then
+    fail "install bin fallback symlink: expected executable replacement"
+  fi
+
+  rm -rf "$temp_dir"
+}
+
 if test_install_release_json_helpers_defined; then
   test_release_version_from_json
   test_asset_url_from_json
@@ -570,7 +652,9 @@ if test_install_release_json_helpers_defined; then
   test_verify_checksum_sha256sum
   test_verify_checksum_rejects_mismatch
   test_extract_binary_from_tarball
+  test_extract_binary_from_nested_tarball
   test_install_bin_sets_executable
+  test_install_bin_fallback_replaces_symlink
 fi
 
 if [ "$failures" -ne 0 ]; then
