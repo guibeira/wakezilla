@@ -152,6 +152,17 @@ SH
   chmod +x "$command_path"
 }
 
+sha256_file() {
+  file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
 test_help_includes_required_docs() {
   run_script --help
   assert_eq "0" "$status" "help exit status"
@@ -192,6 +203,104 @@ test_no_args_resolves_release_metadata() {
   if [ ! -x "$temp_dir/install-bin/wakezilla" ]; then
     fail "release metadata install: expected executable in temp BIN_DIR"
   fi
+  rm -rf "$temp_dir"
+}
+
+test_end_to_end_install_with_fake_curl() {
+  temp_dir=$(mktemp -d)
+  old_path="$PATH"
+  mkdir -p "$temp_dir/bin" "$temp_dir/archive" "$temp_dir/install"
+
+  write_install_dependency_stubs "$temp_dir/bin"
+
+  printf '#!/usr/bin/env sh\nprintf "wakezilla 0.1.49\\n"\n' > "$temp_dir/archive/wakezilla"
+  chmod +x "$temp_dir/archive/wakezilla"
+  tar -C "$temp_dir/archive" -czf "$temp_dir/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" wakezilla
+  if ! sha=$(sha256_file "$temp_dir/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz"); then
+    printf 'SKIP: end-to-end fake release test requires sha256sum or shasum\n'
+    rm -rf "$temp_dir"
+    return 0
+  fi
+  printf '%s  wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz\n' "$sha" > "$temp_dir/SHA256SUMS"
+
+  cat > "$temp_dir/release.json" <<EOF
+{
+  "tag_name": "v0.1.49",
+  "prerelease": false,
+  "assets": [
+    {
+      "name": "wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz",
+      "browser_download_url": "https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz"
+    }
+  ]
+}
+EOF
+
+  cat > "$temp_dir/bin/curl" <<EOF
+#!/usr/bin/env sh
+set -eu
+out=
+url=
+while [ "\$#" -gt 0 ]; do
+  case "\$1" in
+    -o)
+      out="\$2"
+      shift 2
+      ;;
+    -H)
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      url="\$1"
+      shift
+      ;;
+  esac
+done
+
+case "\$url" in
+  https://api.github.com/repos/guibeira/wakezilla/releases/tags/v0.1.49|https://api.github.com/repos/guibeira/wakezilla/releases/latest)
+    cat "$temp_dir/release.json"
+    ;;
+  https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz)
+    cp "$temp_dir/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" "\$out"
+    ;;
+  https://github.com/guibeira/wakezilla/releases/download/v0.1.49/SHA256SUMS)
+    cp "$temp_dir/SHA256SUMS" "\$out"
+    ;;
+  *)
+    printf 'unexpected url: %s\n' "\$url" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod +x "$temp_dir/bin/curl"
+
+  output_file=$(mktemp)
+  set +e
+  PATH="$temp_dir/bin:$temp_dir/install:$PATH" \
+    BIN_DIR="$temp_dir/install" \
+    TARGET=x86_64-unknown-linux-gnu \
+    "$SCRIPT" 0.1.49 >"$output_file" 2>&1
+  status=$?
+  set -e
+  output=$(cat "$output_file")
+  rm -f "$output_file"
+  PATH="$old_path"
+  export PATH
+
+  assert_eq "0" "$status" "end-to-end fake release exit status"
+  assert_contains "$output" "installed wakezilla v0.1.49" "end-to-end installed version"
+  assert_contains "$output" "resolved wakezilla v0.1.49" "end-to-end resolved version"
+  assert_contains "$output" "asset: https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" "end-to-end asset"
+  assert_contains "$output" "install dir: $temp_dir/install" "end-to-end install dir"
+  assert_not_contains "$output" "unexpected url" "end-to-end no unexpected network"
+  if [ ! -x "$temp_dir/install/wakezilla" ]; then
+    fail "end-to-end install: expected installed binary"
+  fi
+
   rm -rf "$temp_dir"
 }
 
@@ -278,6 +387,7 @@ test_mode_sources_cleanly() {
 
 test_help_includes_required_docs
 test_no_args_resolves_release_metadata
+test_end_to_end_install_with_fake_curl
 test_version_command_nonzero_warns
 test_missing_dependency_reports_hint
 test_unknown_args_fail_with_parser_error
