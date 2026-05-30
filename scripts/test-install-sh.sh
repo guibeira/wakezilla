@@ -67,12 +67,19 @@ write_stub_command() {
 
 write_install_dependency_stubs() {
   bin_dir="$1"
+  real_tar=$(command -v tar)
+  real_sha256sum=$(command -v sha256sum 2>/dev/null || true)
+  real_shasum=$(command -v shasum 2>/dev/null || true)
   mkdir -p "$bin_dir"
   write_stub_command "$bin_dir/curl"
-  write_stub_command "$bin_dir/tar"
-  cat > "$bin_dir/sha256sum" <<'SH'
+  printf '#!/usr/bin/env sh\nexec "%s" "$@"\n' "$real_tar" > "$bin_dir/tar"
+  chmod +x "$bin_dir/tar"
+  cat > "$bin_dir/sha256sum" <<SH
 #!/usr/bin/env sh
-printf '2bc181013bb970686145cc02319c9bb8f3f8bcce1ad18384dc49286c784bed7d  %s\n' "$1"
+if [ -n "$real_sha256sum" ]; then
+  exec "$real_sha256sum" "\$@"
+fi
+exec "$real_shasum" -a 256 "\$@"
 SH
   chmod +x "$bin_dir/sha256sum"
 }
@@ -101,10 +108,17 @@ done
 if [ -n "$output" ]; then
   case "$url" in
     */SHA256SUMS)
-      printf '2bc181013bb970686145cc02319c9bb8f3f8bcce1ad18384dc49286c784bed7d  wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz\n' > "$output"
+      archive_dir=$(dirname "$output")
+      archive="$archive_dir/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz"
+      sha256sum "$archive" | awk '{print $1 "  wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz"}' > "$output"
       ;;
     *)
-      printf 'fake archive\n' > "$output"
+      temp_dir=$(mktemp -d)
+      mkdir -p "$temp_dir/archive"
+      printf '#!/usr/bin/env sh\nprintf "wakezilla 0.1.49\\n"\n' > "$temp_dir/archive/wakezilla"
+      chmod +x "$temp_dir/archive/wakezilla"
+      tar -C "$temp_dir/archive" -czf "$output" wakezilla
+      rm -rf "$temp_dir"
       ;;
   esac
   exit 0
@@ -163,7 +177,11 @@ test_no_args_resolves_release_metadata() {
   assert_contains "$output" "resolved wakezilla v0.1.49" "release metadata version"
   assert_contains "$output" "asset: https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" "release metadata asset"
   assert_contains "$output" "install dir: $temp_dir/install-bin" "release metadata install dir"
+  assert_contains "$output" "installed wakezilla v0.1.49 to $temp_dir/install-bin/wakezilla" "release metadata installed"
   assert_not_contains "$output" "secret-token" "release metadata output token"
+  if [ ! -x "$temp_dir/install-bin/wakezilla" ]; then
+    fail "release metadata install: expected executable in temp BIN_DIR"
+  fi
   rm -rf "$temp_dir"
 }
 
@@ -463,6 +481,8 @@ test_install_release_json_helpers_defined() {
   assert_command_exists download_file "download helper" || missing=1
   assert_command_exists checksum_url_for_release "checksum url helper" || missing=1
   assert_command_exists verify_checksum "verify checksum helper" || missing=1
+  assert_command_exists extract_binary "extract binary helper" || missing=1
+  assert_command_exists install_bin "install binary helper" || missing=1
   [ "$missing" -eq 0 ]
 }
 
@@ -515,12 +535,42 @@ test_verify_checksum_rejects_mismatch() {
   rm -rf "$temp_dir"
 }
 
+test_extract_binary_from_tarball() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/archive"
+  printf '#!/usr/bin/env sh\nprintf "wakezilla 0.1.49\\n"\n' > "$temp_dir/archive/wakezilla"
+  chmod +x "$temp_dir/archive/wakezilla"
+  tar -C "$temp_dir/archive" -czf "$temp_dir/wakezilla.tar.gz" wakezilla
+
+  extracted=$(extract_binary "$temp_dir/wakezilla.tar.gz" "$temp_dir/out" wakezilla)
+  if [ ! -x "$extracted" ]; then
+    fail "extract binary: expected executable at $extracted"
+  fi
+
+  rm -rf "$temp_dir"
+}
+
+test_install_bin_sets_executable() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/bin"
+  printf '#!/usr/bin/env sh\nexit 0\n' > "$temp_dir/src"
+
+  install_bin "$temp_dir/src" "$temp_dir/bin/wakezilla"
+  if [ ! -x "$temp_dir/bin/wakezilla" ]; then
+    fail "install bin: expected executable destination"
+  fi
+
+  rm -rf "$temp_dir"
+}
+
 if test_install_release_json_helpers_defined; then
   test_release_version_from_json
   test_asset_url_from_json
   test_available_targets_from_json
   test_verify_checksum_sha256sum
   test_verify_checksum_rejects_mismatch
+  test_extract_binary_from_tarball
+  test_install_bin_sets_executable
 fi
 
 if [ "$failures" -ne 0 ]; then

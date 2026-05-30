@@ -223,6 +223,46 @@ verify_checksum() {
   fi
 }
 
+install_bin() {
+  src="$1"
+  dst="$2"
+  if command -v install >/dev/null 2>&1; then
+    install -m 755 "$src" "$dst"
+  else
+    cp "$src" "$dst"
+    chmod 755 "$dst"
+  fi
+}
+
+extract_binary() {
+  archive="$1"
+  out_dir="$2"
+  bin_name="$3"
+
+  mkdir -p "$out_dir"
+  case "$archive" in
+    *.tar.gz|*.tgz)
+      tar -xzf "$archive" -C "$out_dir" || err "extract" "failed to extract $(basename "$archive")"
+      ;;
+    *)
+      err "extract" "unsupported archive format: $(basename "$archive")"
+      ;;
+  esac
+
+  if [ -f "$out_dir/$bin_name" ]; then
+    bin_file="$out_dir/$bin_name"
+  else
+    bin_file=$(find "$out_dir" -type f -name "$bin_name" 2>/dev/null | head -n 1)
+  fi
+
+  if [ -z "${bin_file:-}" ] || [ ! -f "$bin_file" ]; then
+    err "binary_lookup" "binary $bin_name not found in downloaded asset"
+  fi
+
+  chmod 755 "$bin_file"
+  printf '%s\n' "$bin_file"
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -254,7 +294,12 @@ tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t wakezilla-install)
 cleanup() {
   rm -rf "$tmpdir"
 }
-trap cleanup EXIT INT TERM
+cleanup_and_exit() {
+  cleanup
+  exit 1
+}
+trap cleanup EXIT
+trap cleanup_and_exit INT TERM
 
 archive="$tmpdir/$asset_name"
 checksums="$tmpdir/SHA256SUMS"
@@ -262,6 +307,17 @@ checksums="$tmpdir/SHA256SUMS"
 download_file "$asset_url" "$archive" "$asset_name"
 download_file "$(checksum_url_for_release "$release_version")" "$checksums" "SHA256SUMS"
 verify_checksum "$archive" "$checksums" "$asset_name"
+
+mkdir -p "$bin_dir" || err "install" "failed to create install directory: $bin_dir"
+bin_file=$(extract_binary "$archive" "$tmpdir/extract" "$BIN_NAME")
+install_bin "$bin_file" "$bin_dir/$BIN_NAME" || err "install" "failed to install binary to $bin_dir/$BIN_NAME"
+
+installed_version=$("$bin_dir/$BIN_NAME" --version 2>/dev/null | awk '{print $NF}' || echo "")
+if [ -n "$installed_version" ]; then
+  info "installed $BIN_NAME v$installed_version to $bin_dir/$BIN_NAME"
+else
+  warn "$BIN_NAME installed, but '$BIN_NAME --version' produced no output"
+fi
 
 info "resolved $BIN_NAME v$release_version"
 info "asset: $asset_url"
