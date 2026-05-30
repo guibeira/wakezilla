@@ -101,9 +101,40 @@ resolve_bin_dir() {
   fi
 }
 
+pkg_manager_hint() {
+  pkg="$1"
+  if command -v brew >/dev/null 2>&1; then
+    printf 'brew install %s' "$pkg"
+  elif command -v apt-get >/dev/null 2>&1; then
+    printf 'apt-get install -y %s' "$pkg"
+  elif command -v dnf >/dev/null 2>&1; then
+    printf 'dnf install -y %s' "$pkg"
+  elif command -v yum >/dev/null 2>&1; then
+    printf 'yum install -y %s' "$pkg"
+  elif command -v apk >/dev/null 2>&1; then
+    printf 'apk add %s' "$pkg"
+  elif command -v pacman >/dev/null 2>&1; then
+    printf 'pacman -S --noconfirm %s' "$pkg"
+  else
+    printf 'install %s via your package manager' "$pkg"
+  fi
+}
+
+have_checksum_tool() {
+  command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1
+}
+
+check_dependencies() {
+  command -v curl >/dev/null 2>&1 || err "dependency" "curl is required ($(pkg_manager_hint curl))"
+  command -v jq >/dev/null 2>&1 || err "dependency" "jq is required ($(pkg_manager_hint jq))"
+  command -v tar >/dev/null 2>&1 || err "dependency" "tar is required ($(pkg_manager_hint tar))"
+  have_checksum_tool || err "dependency" "sha256sum or shasum is required ($(pkg_manager_hint coreutils))"
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
 parse_args "$@"
+check_dependencies
 usage

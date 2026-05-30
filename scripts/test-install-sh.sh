@@ -146,6 +146,9 @@ test_install_argument_helpers_defined() {
   missing=0
   assert_command_exists parse_args "parse args helper" || missing=1
   assert_command_exists resolve_bin_dir "resolve bin dir helper" || missing=1
+  assert_command_exists pkg_manager_hint "package manager hint helper" || missing=1
+  assert_command_exists have_checksum_tool "checksum tool helper" || missing=1
+  assert_command_exists check_dependencies "dependency check helper" || missing=1
   [ "$missing" -eq 0 ]
 }
 
@@ -224,6 +227,26 @@ if test_install_argument_helpers_defined; then
   test_resolve_bin_dir_override
   test_resolve_bin_dir_requires_home_for_default
 fi
+
+test_pkg_manager_hint_apt() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/bin"
+  printf '#!/usr/bin/env sh\nexit 0\n' > "$temp_dir/bin/apt-get"
+  chmod +x "$temp_dir/bin/apt-get"
+  hint=$(PATH="$temp_dir/bin" pkg_manager_hint jq)
+  assert_eq "apt-get install -y jq" "$hint" "apt package hint"
+  rm -rf "$temp_dir"
+}
+
+test_pkg_manager_hint_unknown() {
+  temp_dir=$(mktemp -d)
+  hint=$(PATH="$temp_dir" pkg_manager_hint jq)
+  assert_eq "install jq via your package manager" "$hint" "unknown package hint"
+  rm -rf "$temp_dir"
+}
+
+test_pkg_manager_hint_apt
+test_pkg_manager_hint_unknown
 
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
