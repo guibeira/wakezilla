@@ -94,8 +94,10 @@ resolve_bin_dir() {
     printf '%s\n' "$BIN_DIR"
   elif [ -n "${PREFIX:-}" ]; then
     printf '%s/bin\n' "$PREFIX"
-  else
+  elif [ -n "${HOME:-}" ]; then
     printf '%s/.local/bin\n' "$HOME"
+  else
+    err "install" "HOME is not set; set BIN_DIR or PREFIX to choose an install directory"
   fi
 }
 

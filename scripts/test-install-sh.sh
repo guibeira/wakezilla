@@ -197,6 +197,19 @@ test_resolve_bin_dir_override() {
   assert_eq "/custom/bin" "$bin_dir" "BIN_DIR override"
 }
 
+test_resolve_bin_dir_requires_home_for_default() {
+  if output=$(
+    unset BIN_DIR || true
+    unset PREFIX || true
+    unset HOME || true
+    resolve_bin_dir 2>&1
+  ); then
+    fail "missing HOME bin dir: expected failure, got '$output'"
+  else
+    assert_contains "$output" "HOME is not set" "missing HOME bin dir"
+  fi
+}
+
 load_install_helpers
 test_detect_target_linux_x86_64
 test_detect_target_macos_x86_64
@@ -209,6 +222,7 @@ if test_install_argument_helpers_defined; then
   test_resolve_bin_dir_default
   test_resolve_bin_dir_prefix
   test_resolve_bin_dir_override
+  test_resolve_bin_dir_requires_home_for_default
 fi
 
 if [ "$failures" -ne 0 ]; then
