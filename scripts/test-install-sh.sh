@@ -49,6 +49,21 @@ run_script() {
   rm -f "$output_file"
 }
 
+write_stub_command() {
+  command_path="$1"
+  printf '#!/usr/bin/env sh\nexit 0\n' > "$command_path"
+  chmod +x "$command_path"
+}
+
+write_install_dependency_stubs() {
+  bin_dir="$1"
+  mkdir -p "$bin_dir"
+  write_stub_command "$bin_dir/curl"
+  write_stub_command "$bin_dir/jq"
+  write_stub_command "$bin_dir/tar"
+  write_stub_command "$bin_dir/sha256sum"
+}
+
 test_help_includes_required_docs() {
   run_script --help
   assert_eq "0" "$status" "help exit status"
@@ -65,9 +80,36 @@ test_help_includes_required_docs() {
 }
 
 test_no_args_prints_usage() {
-  run_script
+  temp_dir=$(mktemp -d)
+  write_install_dependency_stubs "$temp_dir/bin"
+  PATH="$temp_dir/bin:$PATH" run_script
   assert_eq "0" "$status" "no args exit status"
   assert_contains "$output" "Usage: install.sh" "no args usage"
+  rm -rf "$temp_dir"
+}
+
+test_missing_dependency_reports_hint() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/bin"
+  write_stub_command "$temp_dir/bin/curl"
+  write_stub_command "$temp_dir/bin/tar"
+  write_stub_command "$temp_dir/bin/sha256sum"
+  write_stub_command "$temp_dir/bin/apt-get"
+
+  output_file=$(mktemp)
+  set +e
+  PATH="$temp_dir/bin" /bin/sh "$SCRIPT" >"$output_file" 2>&1
+  status=$?
+  set -e
+  output=$(cat "$output_file")
+  rm -f "$output_file"
+  rm -rf "$temp_dir"
+
+  if [ "$status" -eq 0 ]; then
+    fail "missing dependency exit status: expected nonzero, got 0"
+  fi
+  assert_contains "$output" "error[dependency]: jq is required" "missing dependency error"
+  assert_contains "$output" "apt-get install -y jq" "missing dependency hint"
 }
 
 test_unknown_args_fail_with_parser_error() {
@@ -106,6 +148,7 @@ test_mode_sources_cleanly() {
 
 test_help_includes_required_docs
 test_no_args_prints_usage
+test_missing_dependency_reports_hint
 test_unknown_args_fail_with_parser_error
 test_mode_executes_cleanly
 test_mode_sources_cleanly
