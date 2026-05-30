@@ -24,6 +24,20 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  install-script:
+    name: install script
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check shell syntax
+        run: sh -n install.sh scripts/test-install-sh.sh
+
+      - name: Run installer tests
+        run: scripts/test-install-sh.sh
+
   frontend:
     name: frontend
     runs-on: ubuntu-latest
