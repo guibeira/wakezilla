@@ -38,7 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/guibeira/wakezilla/main/install.sh 
 By default this installs `wakezilla` to `$HOME/.local/bin`. Override the destination with `BIN_DIR`:
 
 ```bash
-BIN_DIR=/usr/local/bin sh install.sh 0.1.49
+curl -fsSL https://raw.githubusercontent.com/guibeira/wakezilla/main/install.sh | BIN_DIR=/usr/local/bin sh -s -- 0.1.49
 ```
 
 The script installs prebuilt binaries from GitHub Releases and requires `curl`, `jq`, `tar`, and either `sha256sum` or `shasum`.
