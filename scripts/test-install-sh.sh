@@ -293,6 +293,36 @@ if command -v pkg_manager_hint >/dev/null 2>&1; then
   test_pkg_manager_hint_unknown
 fi
 
+test_install_release_json_helpers_defined() {
+  missing=0
+  assert_command_exists release_version_from_json "release version json helper" || missing=1
+  assert_command_exists asset_url_from_json "asset url json helper" || missing=1
+  assert_command_exists available_targets_from_json "available targets json helper" || missing=1
+  [ "$missing" -eq 0 ]
+}
+
+test_release_version_from_json() {
+  version=$(release_version_from_json < "$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json")
+  assert_eq "0.1.49" "$version" "release version from json"
+}
+
+test_asset_url_from_json() {
+  url=$(asset_url_from_json wakezilla 0.1.49 x86_64-unknown-linux-gnu < "$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json")
+  assert_eq "https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" "$url" "asset url"
+}
+
+test_available_targets_from_json() {
+  targets=$(available_targets_from_json wakezilla < "$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json" | tr '\n' ' ')
+  assert_contains "$targets" "x86_64-unknown-linux-gnu" "available linux target"
+  assert_contains "$targets" "aarch64-apple-darwin" "available mac target"
+}
+
+if test_install_release_json_helpers_defined; then
+  test_release_version_from_json
+  test_asset_url_from_json
+  test_available_targets_from_json
+fi
+
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
   exit 1

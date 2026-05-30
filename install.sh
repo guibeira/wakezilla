@@ -131,6 +131,32 @@ check_dependencies() {
   have_checksum_tool || err "dependency" "sha256sum or shasum is required ($(pkg_manager_hint coreutils))"
 }
 
+release_version_from_json() {
+  jq -r '.tag_name | sub("^wakezilla/v"; "") | sub("^v"; "")'
+}
+
+asset_url_from_json() {
+  bin_name="$1"
+  version="$2"
+  target="$3"
+  asset_name="${bin_name}-${version}-${target}.tar.gz"
+  jq -r --arg name "$asset_name" '.assets[] | select(.name == $name) | .browser_download_url' | head -n 1
+}
+
+available_targets_from_json() {
+  bin_name="$1"
+  jq -r --arg bin_name "$bin_name" '
+    (.tag_name | sub("^wakezilla/v"; "") | sub("^v"; "")) as $version
+    | ($bin_name + "-" + $version + "-") as $prefix
+    | .assets[]
+    | .name
+    | select(startswith($prefix))
+    | select(endswith(".tar.gz"))
+    | .[($prefix | length):]
+    | .[:-7]
+  ' | sort -u
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
