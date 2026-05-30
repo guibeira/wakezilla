@@ -182,6 +182,47 @@ fetch_release_json() {
   fi
 }
 
+download_file() {
+  url="$1"
+  dst="$2"
+  label="$3"
+
+  info "downloading $label..."
+  if [ -t 2 ]; then
+    curl -fL --progress-bar "$url" -o "$dst" || err "download" "failed to download $url"
+  else
+    curl -fsSL "$url" -o "$dst" || err "download" "failed to download $url"
+  fi
+}
+
+checksum_url_for_release() {
+  version="$1"
+  printf 'https://github.com/%s/releases/download/v%s/SHA256SUMS\n' "$REPO" "$version"
+}
+
+verify_checksum() {
+  file="$1"
+  checksums="$2"
+  asset_name="$3"
+  expected=$(awk -v name="$asset_name" '$2 == name { print $1; exit }' "$checksums")
+
+  if [ -z "$expected" ]; then
+    err "checksum" "checksum not found for $asset_name"
+  fi
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$file" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    actual=$(shasum -a 256 "$file" | awk '{print $1}')
+  else
+    err "dependency" "sha256sum or shasum is required ($(pkg_manager_hint coreutils))"
+  fi
+
+  if [ "$actual" != "$expected" ]; then
+    err "checksum" "checksum verification failed for $asset_name"
+  fi
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -207,6 +248,20 @@ if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
   } >&2
   err "download" "no release asset found for target: $target"
 fi
+
+asset_name=$(basename "$asset_url")
+tmpdir=$(mktemp -d 2>/dev/null || mktemp -d -t wakezilla-install)
+cleanup() {
+  rm -rf "$tmpdir"
+}
+trap cleanup EXIT INT TERM
+
+archive="$tmpdir/$asset_name"
+checksums="$tmpdir/SHA256SUMS"
+
+download_file "$asset_url" "$archive" "$asset_name"
+download_file "$(checksum_url_for_release "$release_version")" "$checksums" "SHA256SUMS"
+verify_checksum "$archive" "$checksums" "$asset_name"
 
 info "resolved $BIN_NAME v$release_version"
 info "asset: $asset_url"

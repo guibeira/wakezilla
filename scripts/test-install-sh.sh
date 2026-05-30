@@ -70,13 +70,46 @@ write_install_dependency_stubs() {
   mkdir -p "$bin_dir"
   write_stub_command "$bin_dir/curl"
   write_stub_command "$bin_dir/tar"
-  write_stub_command "$bin_dir/sha256sum"
+  cat > "$bin_dir/sha256sum" <<'SH'
+#!/usr/bin/env sh
+printf '2bc181013bb970686145cc02319c9bb8f3f8bcce1ad18384dc49286c784bed7d  %s\n' "$1"
+SH
+  chmod +x "$bin_dir/sha256sum"
 }
 
 write_fixture_curl() {
   command_path="$1"
   cat > "$command_path" <<'SH'
 #!/usr/bin/env sh
+output=
+url=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      shift
+      output="$1"
+      ;;
+    -*)
+      ;;
+    *)
+      url="$1"
+      ;;
+  esac
+  shift
+done
+
+if [ -n "$output" ]; then
+  case "$url" in
+    */SHA256SUMS)
+      printf '2bc181013bb970686145cc02319c9bb8f3f8bcce1ad18384dc49286c784bed7d  wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz\n' > "$output"
+      ;;
+    *)
+      printf 'fake archive\n' > "$output"
+      ;;
+  esac
+  exit 0
+fi
+
 cat "$WAKEZILLA_FAKE_CURL_FIXTURE"
 SH
   chmod +x "$command_path"
@@ -427,6 +460,9 @@ test_install_release_json_helpers_defined() {
   assert_command_exists release_version_from_json "release version json helper" || missing=1
   assert_command_exists asset_url_from_json "asset url json helper" || missing=1
   assert_command_exists available_targets_from_json "available targets json helper" || missing=1
+  assert_command_exists download_file "download helper" || missing=1
+  assert_command_exists checksum_url_for_release "checksum url helper" || missing=1
+  assert_command_exists verify_checksum "verify checksum helper" || missing=1
   [ "$missing" -eq 0 ]
 }
 
@@ -451,6 +487,42 @@ if test_install_release_json_helpers_defined; then
   test_asset_url_from_json
   test_available_targets_from_json
 fi
+
+test_verify_checksum_sha256sum() {
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    printf 'SKIP: sha256sum checksum test\n'
+    return 0
+  fi
+
+  temp_dir=$(mktemp -d)
+  printf 'hello\n' > "$temp_dir/file.txt"
+  sha=$(sha256sum "$temp_dir/file.txt" | awk '{print $1}')
+  printf '%s  file.txt\n' "$sha" > "$temp_dir/SHA256SUMS"
+
+  verify_checksum "$temp_dir/file.txt" "$temp_dir/SHA256SUMS" "file.txt"
+  rm -rf "$temp_dir"
+}
+
+test_verify_checksum_rejects_mismatch() {
+  if ! command -v sha256sum >/dev/null 2>&1; then
+    printf 'SKIP: sha256sum mismatch test\n'
+    return 0
+  fi
+
+  temp_dir=$(mktemp -d)
+  printf 'hello\n' > "$temp_dir/file.txt"
+  printf '0000000000000000000000000000000000000000000000000000000000000000  file.txt\n' > "$temp_dir/SHA256SUMS"
+
+  if output=$(verify_checksum "$temp_dir/file.txt" "$temp_dir/SHA256SUMS" "file.txt" 2>&1); then
+    fail "checksum mismatch: expected failure, got '$output'"
+  else
+    assert_contains "$output" "checksum verification failed" "checksum mismatch"
+  fi
+  rm -rf "$temp_dir"
+}
+
+test_verify_checksum_sha256sum
+test_verify_checksum_rejects_mismatch
 
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
