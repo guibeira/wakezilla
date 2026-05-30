@@ -61,12 +61,12 @@ test_no_args_prints_usage() {
   assert_contains "$output" "Usage: install.sh" "no args usage"
 }
 
-test_unknown_args_fail_with_placeholder() {
+test_unknown_args_fail_with_parser_error() {
   run_script --unknown
   if [ "$status" -eq 0 ]; then
     fail "unknown args exit status: expected nonzero, got 0"
   fi
-  assert_contains "$output" "error[args]: unknown option or argument before parser is implemented: --unknown" "unknown args placeholder"
+  assert_contains "$output" "error[args]: unknown option: --unknown (use --help for usage)" "unknown args parser error"
 }
 
 test_mode_executes_cleanly() {
@@ -97,7 +97,7 @@ test_mode_sources_cleanly() {
 
 test_help_includes_required_docs
 test_no_args_prints_usage
-test_unknown_args_fail_with_placeholder
+test_unknown_args_fail_with_parser_error
 test_mode_executes_cleanly
 test_mode_sources_cleanly
 
@@ -133,12 +133,65 @@ test_detect_target_unsupported_linux_arm64() {
   fi
 }
 
+test_parse_args_positional_version() {
+  parsed_version=$(
+    VERSION=
+    parse_args 0.1.49
+    printf '%s\n' "$VERSION"
+  )
+  assert_eq "0.1.49" "$parsed_version" "positional version"
+}
+
+test_parse_args_rejects_two_versions() {
+  if output=$(
+    VERSION=
+    parse_args 0.1.49 0.1.50 2>&1
+  ); then
+    fail "parse args duplicate version: expected failure, got '$output'"
+  else
+    assert_contains "$output" "unexpected argument" "duplicate version error"
+  fi
+}
+
+test_resolve_bin_dir_default() {
+  bin_dir=$(
+    HOME=/tmp/wakezilla-home
+    unset BIN_DIR || true
+    unset PREFIX || true
+    resolve_bin_dir
+  )
+  assert_eq "/tmp/wakezilla-home/.local/bin" "$bin_dir" "default bin dir"
+}
+
+test_resolve_bin_dir_prefix() {
+  bin_dir=$(
+    unset BIN_DIR || true
+    PREFIX=/opt/wakezilla
+    resolve_bin_dir
+  )
+  assert_eq "/opt/wakezilla/bin" "$bin_dir" "prefix bin dir"
+}
+
+test_resolve_bin_dir_override() {
+  bin_dir=$(
+    BIN_DIR=/custom/bin
+    PREFIX=/ignored
+    resolve_bin_dir
+  )
+  assert_eq "/custom/bin" "$bin_dir" "BIN_DIR override"
+}
+
 load_install_helpers
 test_detect_target_linux_x86_64
 test_detect_target_macos_x86_64
 test_detect_target_macos_arm64
 test_detect_target_override
 test_detect_target_unsupported_linux_arm64
+test_parse_args_positional_version
+test_parse_args_rejects_two_versions
+test_resolve_bin_dir_default
+test_resolve_bin_dir_prefix
+test_resolve_bin_dir_override
 
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2

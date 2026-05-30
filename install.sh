@@ -68,20 +68,40 @@ detect_target() {
   esac
 }
 
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      -*)
+        err "args" "unknown option: $1 (use --help for usage)"
+        ;;
+      *)
+        if [ -n "${VERSION:-}" ]; then
+          err "args" "unexpected argument: $1 (VERSION is already set to $VERSION)"
+        fi
+        VERSION="$1"
+        ;;
+    esac
+    shift
+  done
+}
+
+resolve_bin_dir() {
+  if [ -n "${BIN_DIR:-}" ]; then
+    printf '%s\n' "$BIN_DIR"
+  elif [ -n "${PREFIX:-}" ]; then
+    printf '%s/bin\n' "$PREFIX"
+  else
+    printf '%s/.local/bin\n' "$HOME"
+  fi
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    *)
-      err "args" "unknown option or argument before parser is implemented: $1"
-      ;;
-  esac
-done
-
+parse_args "$@"
 usage
