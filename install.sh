@@ -43,6 +43,31 @@ Examples:
 USAGE
 }
 
+detect_target() {
+  if [ -n "${TARGET:-}" ]; then
+    printf '%s\n' "$TARGET"
+    return 0
+  fi
+
+  uname_s="${WAKEZILLA_UNAME_S:-$(uname -s 2>/dev/null || echo unknown)}"
+  uname_m="${WAKEZILLA_UNAME_M:-$(uname -m 2>/dev/null || echo unknown)}"
+
+  case "$uname_m" in
+    x86_64|amd64) arch="x86_64" ;;
+    arm64|aarch64) arch="aarch64" ;;
+    *) err "platform" "unsupported architecture: $uname_m" ;;
+  esac
+
+  case "$uname_s:$arch" in
+    Linux:x86_64) printf 'x86_64-unknown-linux-gnu\n' ;;
+    Darwin:x86_64) printf 'x86_64-apple-darwin\n' ;;
+    Darwin:aarch64) printf 'aarch64-apple-darwin\n' ;;
+    *)
+      err "platform" "unsupported platform: $uname_s/$uname_m. Supported release targets are x86_64-unknown-linux-gnu, x86_64-apple-darwin, aarch64-apple-darwin"
+      ;;
+  esac
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi

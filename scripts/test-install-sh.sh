@@ -101,6 +101,45 @@ test_unknown_args_fail_with_placeholder
 test_mode_executes_cleanly
 test_mode_sources_cleanly
 
+load_install_helpers() {
+  WAKEZILLA_INSTALL_SH_TEST_MODE=1 . "$SCRIPT"
+}
+
+test_detect_target_linux_x86_64() {
+  target=$(WAKEZILLA_UNAME_S=Linux WAKEZILLA_UNAME_M=x86_64 detect_target)
+  assert_eq "x86_64-unknown-linux-gnu" "$target" "linux x86_64 target"
+}
+
+test_detect_target_macos_x86_64() {
+  target=$(WAKEZILLA_UNAME_S=Darwin WAKEZILLA_UNAME_M=x86_64 detect_target)
+  assert_eq "x86_64-apple-darwin" "$target" "macos x86_64 target"
+}
+
+test_detect_target_macos_arm64() {
+  target=$(WAKEZILLA_UNAME_S=Darwin WAKEZILLA_UNAME_M=arm64 detect_target)
+  assert_eq "aarch64-apple-darwin" "$target" "macos arm64 target"
+}
+
+test_detect_target_override() {
+  target=$(TARGET=custom-target WAKEZILLA_UNAME_S=Other WAKEZILLA_UNAME_M=Other detect_target)
+  assert_eq "custom-target" "$target" "target override"
+}
+
+test_detect_target_unsupported_linux_arm64() {
+  if output=$(WAKEZILLA_UNAME_S=Linux WAKEZILLA_UNAME_M=aarch64 detect_target 2>&1); then
+    fail "unsupported linux arm64 target: expected failure, got '$output'"
+  else
+    assert_contains "$output" "unsupported platform" "unsupported linux arm64"
+  fi
+}
+
+load_install_helpers
+test_detect_target_linux_x86_64
+test_detect_target_macos_x86_64
+test_detect_target_macos_arm64
+test_detect_target_override
+test_detect_target_unsupported_linux_arm64
+
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
   exit 1
