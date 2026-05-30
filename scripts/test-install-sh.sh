@@ -684,10 +684,41 @@ test_path_guidance_when_home_unset() {
   assert_contains "$output" "export PATH=\"/tmp/wakezilla-bin:\$PATH\"" "path guidance without HOME export"
 }
 
+test_path_guidance_quotes_zsh_rc_with_spaces() {
+  output=$(
+    PATH=/usr/bin
+    SHELL=/bin/zsh
+    ZDOTDIR="/tmp/wakezilla zsh home"
+    path_guidance /tmp/wakezilla-bin
+  )
+  assert_contains "$output" '>> "/tmp/wakezilla zsh home/.zshrc"' "zsh rc redirection quoted"
+  assert_contains "$output" 'source "/tmp/wakezilla zsh home/.zshrc"' "zsh rc source quoted"
+}
+
+test_path_guidance_quotes_bash_rc_with_spaces() {
+  output=$(
+    PATH=/usr/bin
+    SHELL=/bin/bash
+    HOME="/tmp/wakezilla bash home"
+    WAKEZILLA_UNAME_S=Linux
+    path_guidance /tmp/wakezilla-bin
+  )
+  assert_contains "$output" '>> "/tmp/wakezilla bash home/.bashrc"' "bash rc redirection quoted"
+  assert_contains "$output" 'source "/tmp/wakezilla bash home/.bashrc"' "bash rc source quoted"
+}
+
+test_path_guidance_quotes_fish_bin_dir_with_spaces() {
+  output=$(PATH=/usr/bin SHELL=/usr/bin/fish path_guidance "/tmp/wakezilla bin")
+  assert_contains "$output" 'fish_add_path "/tmp/wakezilla bin"' "fish bin dir quoted"
+}
+
 if test_path_guidance_helpers_defined; then
   test_path_guidance_when_missing
   test_path_guidance_when_present
   test_path_guidance_when_home_unset
+  test_path_guidance_quotes_zsh_rc_with_spaces
+  test_path_guidance_quotes_bash_rc_with_spaces
+  test_path_guidance_quotes_fish_bin_dir_with_spaces
 fi
 
 if [ "$failures" -ne 0 ]; then

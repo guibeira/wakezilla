@@ -281,15 +281,16 @@ path_guidance() {
   printf '\nadd %s to your PATH.\n' "$bin_dir"
   case "$shell_name" in
     bash)
-      if [ "$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then
+      uname_s="${WAKEZILLA_UNAME_S:-$(uname -s 2>/dev/null || echo unknown)}"
+      if [ "$uname_s" = "Darwin" ]; then
         rc="${HOME:-}/.bash_profile"
       else
         rc="${HOME:-}/.bashrc"
       fi
       if [ -n "${HOME:-}" ]; then
         printf 'For bash:\n'
-        printf '  echo '\''export PATH="%s:$PATH"'\'' >> %s\n' "$bin_dir" "$rc"
-        printf '  source %s\n' "$rc"
+        printf '  echo '\''export PATH="%s:$PATH"'\'' >> "%s"\n' "$bin_dir" "$rc"
+        printf '  source "%s"\n' "$rc"
       else
         printf 'For bash:\n'
         printf '  export PATH="%s:$PATH"\n' "$bin_dir"
@@ -305,15 +306,15 @@ path_guidance() {
       fi
       printf 'For zsh:\n'
       if [ -n "$rc" ]; then
-        printf '  echo '\''export PATH="%s:$PATH"'\'' >> %s\n' "$bin_dir" "$rc"
-        printf '  source %s\n' "$rc"
+        printf '  echo '\''export PATH="%s:$PATH"'\'' >> "%s"\n' "$bin_dir" "$rc"
+        printf '  source "%s"\n' "$rc"
       else
         printf '  export PATH="%s:$PATH"\n' "$bin_dir"
       fi
       ;;
     fish)
       printf 'For fish:\n'
-      printf '  fish_add_path %s\n' "$bin_dir"
+      printf '  fish_add_path "%s"\n' "$bin_dir"
       ;;
     *)
       printf 'For your current shell:\n'
