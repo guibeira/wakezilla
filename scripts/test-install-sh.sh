@@ -245,8 +245,10 @@ test_pkg_manager_hint_unknown() {
   rm -rf "$temp_dir"
 }
 
-test_pkg_manager_hint_apt
-test_pkg_manager_hint_unknown
+if command -v pkg_manager_hint >/dev/null 2>&1; then
+  test_pkg_manager_hint_apt
+  test_pkg_manager_hint_unknown
+fi
 
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
