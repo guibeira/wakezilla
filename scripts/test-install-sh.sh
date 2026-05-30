@@ -30,6 +30,15 @@ assert_eq() {
   fi
 }
 
+assert_command_exists() {
+  command_name="$1"
+  label="$2"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    fail "$label: expected command '$command_name' to be defined"
+    return 1
+  fi
+}
+
 run_script() {
   output_file=$(mktemp)
   set +e
@@ -133,6 +142,13 @@ test_detect_target_unsupported_linux_arm64() {
   fi
 }
 
+test_install_argument_helpers_defined() {
+  missing=0
+  assert_command_exists parse_args "parse args helper" || missing=1
+  assert_command_exists resolve_bin_dir "resolve bin dir helper" || missing=1
+  [ "$missing" -eq 0 ]
+}
+
 test_parse_args_positional_version() {
   parsed_version=$(
     VERSION=
@@ -187,11 +203,13 @@ test_detect_target_macos_x86_64
 test_detect_target_macos_arm64
 test_detect_target_override
 test_detect_target_unsupported_linux_arm64
-test_parse_args_positional_version
-test_parse_args_rejects_two_versions
-test_resolve_bin_dir_default
-test_resolve_bin_dir_prefix
-test_resolve_bin_dir_override
+if test_install_argument_helpers_defined; then
+  test_parse_args_positional_version
+  test_parse_args_rejects_two_versions
+  test_resolve_bin_dir_default
+  test_resolve_bin_dir_prefix
+  test_resolve_bin_dir_override
+fi
 
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
