@@ -157,10 +157,57 @@ available_targets_from_json() {
   ' | sort -u
 }
 
+github_api() {
+  url="$1"
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      -H "Authorization: Bearer $GITHUB_TOKEN" \
+      "$url"
+  else
+    curl -fsSL \
+      -H "Accept: application/vnd.github+json" \
+      -H "X-GitHub-Api-Version: 2022-11-28" \
+      "$url"
+  fi
+}
+
+fetch_release_json() {
+  version="$1"
+  if [ -n "$version" ]; then
+    github_api "https://api.github.com/repos/$REPO/releases/tags/v$version"
+  else
+    github_api "https://api.github.com/repos/$REPO/releases/latest"
+  fi
+}
+
 if [ -n "${WAKEZILLA_INSTALL_SH_TEST_MODE:-}" ]; then
   return 0 2>/dev/null || exit 0
 fi
 
 parse_args "$@"
 check_dependencies
-usage
+target=$(detect_target)
+bin_dir=$(resolve_bin_dir)
+
+info "installing $BIN_NAME for $target"
+json=$(fetch_release_json "${VERSION:-}") || err "download" "failed to fetch release metadata from GitHub"
+
+release_version=$(printf '%s' "$json" | release_version_from_json)
+asset_url=$(printf '%s' "$json" | asset_url_from_json "$BIN_NAME" "$release_version" "$target")
+
+if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
+  {
+    printf '%s %s does not include a prebuilt binary for %s.\n' "$BIN_NAME" "v$release_version" "$target"
+    printf '\nAvailable targets:\n'
+    printf '%s' "$json" | available_targets_from_json "$BIN_NAME" | while IFS= read -r available_target; do
+      [ -n "$available_target" ] && printf ' - %s\n' "$available_target"
+    done
+  } >&2
+  err "download" "no release asset found for target: $target"
+fi
+
+info "resolved $BIN_NAME v$release_version"
+info "asset: $asset_url"
+info "install dir: $bin_dir"

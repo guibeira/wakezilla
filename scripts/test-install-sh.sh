@@ -59,9 +59,15 @@ write_install_dependency_stubs() {
   bin_dir="$1"
   mkdir -p "$bin_dir"
   write_stub_command "$bin_dir/curl"
-  write_stub_command "$bin_dir/jq"
   write_stub_command "$bin_dir/tar"
   write_stub_command "$bin_dir/sha256sum"
+}
+
+write_fixture_curl() {
+  command_path="$1"
+  fixture_path="$2"
+  printf '#!/usr/bin/env sh\ncat %s\n' "$fixture_path" > "$command_path"
+  chmod +x "$command_path"
 }
 
 test_help_includes_required_docs() {
@@ -79,12 +85,16 @@ test_help_includes_required_docs() {
   assert_contains "$output" "VERSION=0.1.49 BIN_DIR=/usr/local/bin sh install.sh" "help local install example"
 }
 
-test_no_args_prints_usage() {
+test_no_args_resolves_release_metadata() {
   temp_dir=$(mktemp -d)
   write_install_dependency_stubs "$temp_dir/bin"
-  PATH="$temp_dir/bin:$PATH" run_script
-  assert_eq "0" "$status" "no args exit status"
-  assert_contains "$output" "Usage: install.sh" "no args usage"
+  write_fixture_curl "$temp_dir/bin/curl" "$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
+  TARGET=x86_64-unknown-linux-gnu BIN_DIR="$temp_dir/install-bin" PATH="$temp_dir/bin:$PATH" run_script
+  assert_eq "0" "$status" "release metadata exit status"
+  assert_contains "$output" "installing wakezilla for x86_64-unknown-linux-gnu" "release metadata target"
+  assert_contains "$output" "resolved wakezilla v0.1.49" "release metadata version"
+  assert_contains "$output" "asset: https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" "release metadata asset"
+  assert_contains "$output" "install dir: $temp_dir/install-bin" "release metadata install dir"
   rm -rf "$temp_dir"
 }
 
@@ -147,7 +157,7 @@ test_mode_sources_cleanly() {
 }
 
 test_help_includes_required_docs
-test_no_args_prints_usage
+test_no_args_resolves_release_metadata
 test_missing_dependency_reports_hint
 test_unknown_args_fail_with_parser_error
 test_mode_executes_cleanly
