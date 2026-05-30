@@ -482,12 +482,6 @@ test_available_targets_from_json() {
   assert_contains "$targets" "aarch64-apple-darwin" "available mac target"
 }
 
-if test_install_release_json_helpers_defined; then
-  test_release_version_from_json
-  test_asset_url_from_json
-  test_available_targets_from_json
-fi
-
 test_verify_checksum_sha256sum() {
   if ! command -v sha256sum >/dev/null 2>&1; then
     printf 'SKIP: sha256sum checksum test\n'
@@ -521,8 +515,13 @@ test_verify_checksum_rejects_mismatch() {
   rm -rf "$temp_dir"
 }
 
-test_verify_checksum_sha256sum
-test_verify_checksum_rejects_mismatch
+if test_install_release_json_helpers_defined; then
+  test_release_version_from_json
+  test_asset_url_from_json
+  test_available_targets_from_json
+  test_verify_checksum_sha256sum
+  test_verify_checksum_rejects_mismatch
+fi
 
 if [ "$failures" -ne 0 ]; then
   printf '%s test(s) failed\n' "$failures" >&2
