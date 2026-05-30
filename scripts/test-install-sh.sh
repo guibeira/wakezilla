@@ -21,6 +21,16 @@ assert_contains() {
   esac
 }
 
+assert_not_contains() {
+  haystack="$1"
+  needle="$2"
+  label="$3"
+  case "$haystack" in
+    *"$needle"*) fail "$label: expected output not to contain '$needle'" ;;
+    *) ;;
+  esac
+}
+
 assert_eq() {
   expected="$1"
   actual="$2"
@@ -65,8 +75,23 @@ write_install_dependency_stubs() {
 
 write_fixture_curl() {
   command_path="$1"
-  fixture_path="$2"
-  printf '#!/usr/bin/env sh\ncat %s\n' "$fixture_path" > "$command_path"
+  cat > "$command_path" <<'SH'
+#!/usr/bin/env sh
+cat "$WAKEZILLA_FAKE_CURL_FIXTURE"
+SH
+  chmod +x "$command_path"
+}
+
+write_recording_fixture_curl() {
+  command_path="$1"
+  cat > "$command_path" <<'SH'
+#!/usr/bin/env sh
+: > "$WAKEZILLA_FAKE_CURL_ARGS"
+for arg do
+  printf '%s\n' "$arg" >> "$WAKEZILLA_FAKE_CURL_ARGS"
+done
+cat "$WAKEZILLA_FAKE_CURL_FIXTURE"
+SH
   chmod +x "$command_path"
 }
 
@@ -87,14 +112,25 @@ test_help_includes_required_docs() {
 
 test_no_args_resolves_release_metadata() {
   temp_dir=$(mktemp -d)
+  old_path="$PATH"
   write_install_dependency_stubs "$temp_dir/bin"
-  write_fixture_curl "$temp_dir/bin/curl" "$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
-  TARGET=x86_64-unknown-linux-gnu BIN_DIR="$temp_dir/install-bin" PATH="$temp_dir/bin:$PATH" run_script
+  write_fixture_curl "$temp_dir/bin/curl"
+  TARGET=x86_64-unknown-linux-gnu
+  BIN_DIR="$temp_dir/install-bin"
+  GITHUB_TOKEN=secret-token
+  WAKEZILLA_FAKE_CURL_FIXTURE="$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
+  PATH="$temp_dir/bin:$PATH"
+  export TARGET BIN_DIR GITHUB_TOKEN WAKEZILLA_FAKE_CURL_FIXTURE PATH
+  run_script
+  unset TARGET BIN_DIR GITHUB_TOKEN WAKEZILLA_FAKE_CURL_FIXTURE
+  PATH="$old_path"
+  export PATH
   assert_eq "0" "$status" "release metadata exit status"
   assert_contains "$output" "installing wakezilla for x86_64-unknown-linux-gnu" "release metadata target"
   assert_contains "$output" "resolved wakezilla v0.1.49" "release metadata version"
   assert_contains "$output" "asset: https://example.test/wakezilla-0.1.49-x86_64-unknown-linux-gnu.tar.gz" "release metadata asset"
   assert_contains "$output" "install dir: $temp_dir/install-bin" "release metadata install dir"
+  assert_not_contains "$output" "secret-token" "release metadata output token"
   rm -rf "$temp_dir"
 }
 
@@ -301,6 +337,89 @@ test_pkg_manager_hint_unknown() {
 if command -v pkg_manager_hint >/dev/null 2>&1; then
   test_pkg_manager_hint_apt
   test_pkg_manager_hint_unknown
+fi
+
+test_github_api_helpers_defined() {
+  missing=0
+  assert_command_exists github_api "github api helper" || missing=1
+  assert_command_exists fetch_release_json "fetch release json helper" || missing=1
+  [ "$missing" -eq 0 ]
+}
+
+test_fetch_release_json_latest_request() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/bin"
+  args_file="$temp_dir/curl-args"
+  write_recording_fixture_curl "$temp_dir/bin/curl"
+
+  json=$(
+    unset GITHUB_TOKEN || true
+    REPO=guibeira/wakezilla
+    WAKEZILLA_FAKE_CURL_ARGS="$args_file"
+    WAKEZILLA_FAKE_CURL_FIXTURE="$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
+    PATH="$temp_dir/bin:$PATH"
+    export WAKEZILLA_FAKE_CURL_ARGS WAKEZILLA_FAKE_CURL_FIXTURE PATH
+    fetch_release_json ""
+  )
+  curl_args=$(cat "$args_file")
+
+  assert_contains "$json" '"tag_name": "v0.1.49"' "latest request fixture output"
+  assert_contains "$curl_args" "https://api.github.com/repos/guibeira/wakezilla/releases/latest" "latest request endpoint"
+  assert_contains "$curl_args" "-H" "latest request header flag"
+  assert_contains "$curl_args" "Accept: application/vnd.github+json" "latest request accept header"
+  assert_contains "$curl_args" "X-GitHub-Api-Version: 2022-11-28" "latest request api version header"
+  assert_not_contains "$curl_args" "Authorization:" "latest request without token"
+
+  rm -rf "$temp_dir"
+}
+
+test_fetch_release_json_version_request() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/bin"
+  args_file="$temp_dir/curl-args"
+  write_recording_fixture_curl "$temp_dir/bin/curl"
+
+  (
+    REPO=guibeira/wakezilla
+    WAKEZILLA_FAKE_CURL_ARGS="$args_file"
+    WAKEZILLA_FAKE_CURL_FIXTURE="$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
+    PATH="$temp_dir/bin:$PATH"
+    export WAKEZILLA_FAKE_CURL_ARGS WAKEZILLA_FAKE_CURL_FIXTURE PATH
+    fetch_release_json "0.1.49"
+  ) >/dev/null
+  curl_args=$(cat "$args_file")
+
+  assert_contains "$curl_args" "https://api.github.com/repos/guibeira/wakezilla/releases/tags/v0.1.49" "version request endpoint"
+
+  rm -rf "$temp_dir"
+}
+
+test_fetch_release_json_token_request() {
+  temp_dir=$(mktemp -d)
+  mkdir -p "$temp_dir/bin"
+  args_file="$temp_dir/curl-args"
+  write_recording_fixture_curl "$temp_dir/bin/curl"
+
+  (
+    REPO=guibeira/wakezilla
+    GITHUB_TOKEN=secret-token
+    WAKEZILLA_FAKE_CURL_ARGS="$args_file"
+    WAKEZILLA_FAKE_CURL_FIXTURE="$ROOT_DIR/tests/fixtures/install/release-v0.1.49.json"
+    PATH="$temp_dir/bin:$PATH"
+    export WAKEZILLA_FAKE_CURL_ARGS WAKEZILLA_FAKE_CURL_FIXTURE PATH
+    fetch_release_json ""
+  ) >/dev/null
+  curl_args=$(cat "$args_file")
+
+  assert_contains "$curl_args" "Authorization: Bearer secret-token" "token request authorization header"
+
+  rm -rf "$temp_dir"
+}
+
+if test_github_api_helpers_defined; then
+  test_fetch_release_json_latest_request
+  test_fetch_release_json_version_request
+  test_fetch_release_json_token_request
 fi
 
 test_install_release_json_helpers_defined() {
