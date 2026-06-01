@@ -183,18 +183,25 @@ available_targets_from_json() {
 
 github_api() {
   url="$1"
+
+  # A token is never required for public repositories. When one is present we
+  # try it first, but fall back to an unauthenticated request if it fails (for
+  # example a stale or invalid GITHUB_TOKEN left in the environment).
   if [ -n "${GITHUB_TOKEN:-}" ]; then
-    curl -fsSL \
+    if curl -fsSL \
       -H "Accept: application/vnd.github+json" \
       -H "X-GitHub-Api-Version: 2022-11-28" \
       -H "Authorization: Bearer $GITHUB_TOKEN" \
-      "$url"
-  else
-    curl -fsSL \
-      -H "Accept: application/vnd.github+json" \
-      -H "X-GitHub-Api-Version: 2022-11-28" \
-      "$url"
+      "$url"; then
+      return 0
+    fi
+    warn "GitHub request with GITHUB_TOKEN failed; retrying without authentication"
   fi
+
+  curl -fsSL \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "$url"
 }
 
 fetch_release_json() {
