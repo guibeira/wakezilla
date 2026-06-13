@@ -3,6 +3,7 @@ use clap::{Parser, Subcommand};
 use std::net::{IpAddr, Ipv4Addr};
 use tracing::{error, info, instrument};
 
+mod access_log;
 mod api_models;
 mod client_server;
 mod config;

@@ -1,4 +1,6 @@
-use crate::models::{DiscoveredDevice, Machine, NetworkInterface, UpdateMachinePayload};
+use crate::models::{
+    AccessHistory, DiscoveredDevice, Machine, NetworkInterface, UpdateMachinePayload,
+};
 use std::sync::LazyLock;
 
 use leptos::leptos_dom::logging::console_log;
@@ -70,6 +72,21 @@ pub async fn get_details_machine(mac: &str) -> Result<Machine, String> {
         .json()
         .await
         .map_err(|e| e.to_string())
+}
+
+pub async fn get_access_history(mac: &str) -> Result<AccessHistory, String> {
+    let mac = encode_path_segment(mac);
+    Request::get(&format!(
+        "{}/machines/{}/access-history",
+        API_BASE.as_str(),
+        mac
+    ))
+    .send()
+    .await
+    .map_err(|e| e.to_string())?
+    .json()
+    .await
+    .map_err(|e| e.to_string())
 }
 
 pub async fn update_machine(mac: &str, payload: &UpdateMachinePayload) -> Result<(), String> {

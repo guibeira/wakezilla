@@ -11,6 +11,83 @@ use web_sys::SubmitEvent;
 use crate::api::{get_details_machine, turn_off_machine, wake_machine};
 use crate::models::{Machine, PortForward, UpdateMachinePayload};
 
+use crate::api::get_access_history;
+use crate::models::AccessHistory;
+use chrono::{DateTime, TimeZone, Utc};
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen(inline_js = r#"
+export function render_usage_chart(canvas_id, labels_json, datasets_json) {
+    if (typeof window.Chart === 'undefined') { return; }
+    const el = document.getElementById(canvas_id);
+    if (!el) { return; }
+    const labels = JSON.parse(labels_json);
+    const datasets = JSON.parse(datasets_json);
+    const palette = ['#2563eb','#16a34a','#dc2626','#d97706','#7c3aed','#0891b2','#db2777'];
+    datasets.forEach((d, i) => {
+        d.backgroundColor = palette[i % palette.length];
+        d.borderColor = palette[i % palette.length];
+    });
+    if (el._chart) { el._chart.destroy(); }
+    el._chart = new window.Chart(el, {
+        type: 'bar',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true,
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            plugins: { legend: { position: 'bottom' } }
+        }
+    });
+}
+"#)]
+extern "C" {
+    fn render_usage_chart(canvas_id: &str, labels_json: &str, datasets_json: &str);
+}
+
+// Returns (sorted day labels "YYYY-MM-DD", per-service datasets as JSON values with counts aligned to labels)
+fn bucket_by_day(history: &AccessHistory) -> (Vec<String>, Vec<serde_json::Value>) {
+    use std::collections::{BTreeSet, HashMap};
+
+    let day_of = |ts: i64| -> String {
+        let dt: DateTime<Utc> = Utc
+            .timestamp_millis_opt(ts)
+            .single()
+            .unwrap_or_else(Utc::now);
+        dt.format("%Y-%m-%d").to_string()
+    };
+
+    let mut all_days: BTreeSet<String> = BTreeSet::new();
+    let mut per_service: Vec<(String, HashMap<String, u32>)> = Vec::new();
+
+    for svc in &history.services {
+        let label = svc
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("port {}", svc.local_port));
+        let mut counts: HashMap<String, u32> = HashMap::new();
+        for &ts in &svc.timestamps {
+            let day = day_of(ts);
+            all_days.insert(day.clone());
+            *counts.entry(day).or_insert(0) += 1;
+        }
+        per_service.push((label, counts));
+    }
+
+    let labels: Vec<String> = all_days.into_iter().collect();
+    let datasets: Vec<serde_json::Value> = per_service
+        .into_iter()
+        .map(|(label, counts)| {
+            let data: Vec<u32> = labels
+                .iter()
+                .map(|d| *counts.get(d).unwrap_or(&0))
+                .collect();
+            serde_json::json!({ "label": label, "data": data })
+        })
+        .collect();
+
+    (labels, datasets)
+}
+
 #[component]
 pub fn MachineDetailPage() -> impl IntoView {
     let params = use_params_map();
@@ -25,6 +102,26 @@ pub fn MachineDetailPage() -> impl IntoView {
                 set_machine_details.set(cats);
             }
         });
+    });
+
+    let (access_history, set_access_history) = signal::<Option<AccessHistory>>(None);
+
+    Effect::new(move || {
+        let mac_val = mac();
+        leptos::task::spawn_local(async move {
+            if let Ok(h) = get_access_history(&mac_val).await {
+                set_access_history.set(Some(h));
+            }
+        });
+    });
+
+    Effect::new(move || {
+        if let Some(history) = access_history.get() {
+            let (labels, datasets) = bucket_by_day(&history);
+            let labels_json = serde_json::to_string(&labels).unwrap_or_else(|_| "[]".into());
+            let datasets_json = serde_json::to_string(&datasets).unwrap_or_else(|_| "[]".into());
+            render_usage_chart("usage-chart", &labels_json, &datasets_json);
+        }
     });
 
     // Form state
@@ -584,6 +681,14 @@ pub fn MachineDetailPage() -> impl IntoView {
                         "Configure a remote shutdown port on the machine to activate this action."
                     </p>
                 </Show>
+            </div>
+
+            <div class="card">
+                <header class="card-header">
+                    <h3 class="card-title">"Access history"</h3>
+                    <p class="card-subtitle">"Connections per service, by day."</p>
+                </header>
+                <canvas id="usage-chart"></canvas>
             </div>
 
             <div class="card">

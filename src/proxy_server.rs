@@ -102,16 +102,37 @@ pub async fn start(config: crate::config::Config) -> Result<()> {
         }
     };
 
+    let max_access_records = config.storage.max_access_records;
     let state = AppState {
         machines: Arc::new(RwLock::new(initial_machines.clone())),
         proxies: Arc::new(RwLock::new(HashMap::new())),
         config: Arc::new(config),
         turn_off_limiter: Arc::new(forward::TurnOffLimiter::new()),
         monitor_handle: Arc::new(std::sync::Mutex::new(None)),
+        access_log: Arc::new(RwLock::new(crate::access_log::AccessLog::load(
+            max_access_records,
+        ))),
     };
 
     // Start global monitor
     web::start_global_monitor(&state);
+
+    {
+        let flush_state = state.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            interval.tick().await; // consume the immediate first tick
+            loop {
+                interval.tick().await;
+                let snapshot = flush_state.access_log.read().await.clone();
+                match tokio::task::spawn_blocking(move || snapshot.save()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => error!("Failed to flush access history: {e}"),
+                    Err(e) => error!("Access history flush task panicked: {e}"),
+                }
+            }
+        });
+    }
 
     for machine in &initial_machines {
         web::start_proxy_if_configured(machine, &state);
@@ -127,9 +148,42 @@ pub async fn start(config: crate::config::Config) -> Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
     info!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    // Persist access history on shutdown so the last interval isn't lost.
+    let snapshot = state.access_log.read().await.clone();
+    if let Err(e) = snapshot.save() {
+        error!("Failed to flush access history on shutdown: {e}");
+    }
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        if let Ok(mut sig) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            sig.recv().await;
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+
+    info!("Shutdown signal received");
 }
 
 pub fn api_routes(state: AppState) -> Router {
@@ -141,6 +195,10 @@ pub fn api_routes(state: AppState) -> Router {
             get(show_machines_api).post(add_machine_api),
         )
         .route("/api/machines/:mac", get(get_machine_details_api))
+        .route(
+            "/api/machines/:mac/access-history",
+            get(get_access_history_api),
+        )
         .route("/api/machines/:mac", put(update_machine_api))
         .route(
             "/api/machines/:mac/remote-turn-off",
@@ -325,6 +383,44 @@ async fn get_machine_details_api(
             Json(serde_json::json!({ "error": "Machine not found" })),
         ))
     }
+}
+
+async fn get_access_history_api(
+    State(state): State<AppState>,
+    Path(mac): Path<String>,
+) -> Result<Json<wakezilla_common::AccessHistory>, (axum::http::StatusCode, Json<serde_json::Value>)>
+{
+    let machines = state.machines.read().await;
+    let machine = machines.iter().find(|m| m.mac == mac).cloned();
+    drop(machines);
+
+    let Some(machine) = machine else {
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Machine not found" })),
+        ));
+    };
+
+    let log = state.access_log.read().await;
+    let services = machine
+        .port_forwards
+        .iter()
+        .map(|pf| {
+            let key = crate::access_log::service_key(&machine.mac, pf.local_port);
+            wakezilla_common::ServiceAccessHistory {
+                name: if pf.name.trim().is_empty() {
+                    None
+                } else {
+                    Some(pf.name.clone())
+                },
+                local_port: pf.local_port,
+                target_port: pf.target_port,
+                timestamps: log.get(&key),
+            }
+        })
+        .collect();
+
+    Ok(Json(wakezilla_common::AccessHistory { services }))
 }
 
 async fn update_machine_api(
@@ -579,12 +675,17 @@ mod tests {
     }
 
     fn state_with_machines(machines: Vec<Machine>) -> AppState {
+        let config = crate::config::Config::default();
+        let max_access_records = config.storage.max_access_records;
         let state = AppState {
             machines: Arc::new(RwLock::new(machines)),
             proxies: Arc::new(RwLock::new(HashMap::new())),
-            config: Arc::new(crate::config::Config::default()),
+            config: Arc::new(config),
             turn_off_limiter: Arc::new(forward::TurnOffLimiter::new()),
             monitor_handle: Arc::new(std::sync::Mutex::new(None)),
+            access_log: Arc::new(RwLock::new(crate::access_log::AccessLog::new(
+                max_access_records,
+            ))),
         };
         web::start_global_monitor(&state);
         state

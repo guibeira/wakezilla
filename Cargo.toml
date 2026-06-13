@@ -46,7 +46,7 @@ include = [
 clap = { version = "4", features = ["derive"] }
 axum = { version = "0.7", features = ["macros"] }
 serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros", "sync", "net", "time", "io-util"] }
+tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros", "sync", "net", "time", "io-util", "signal"] }
 serde_json = "1.0"
 askama = "0.12"
 askama_axum = "0.4"

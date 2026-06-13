@@ -77,3 +77,16 @@ pub struct DiscoveredDevice {
     pub mac: String,
     pub hostname: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ServiceAccessHistory {
+    pub name: Option<String>,
+    pub local_port: u16,
+    pub target_port: u16,
+    pub timestamps: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AccessHistory {
+    pub services: Vec<ServiceAccessHistory>,
+}

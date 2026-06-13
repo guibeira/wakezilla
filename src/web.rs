@@ -30,6 +30,7 @@ where
     Ipv4Addr::from_str(&s).map_err(serde::de::Error::custom)
 }
 
+use crate::access_log::AccessLog;
 use crate::config::Config;
 use crate::forward;
 
@@ -112,6 +113,7 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub turn_off_limiter: Arc<forward::TurnOffLimiter>,
     pub monitor_handle: Arc<std::sync::Mutex<Option<tokio::task::AbortHandle>>>,
+    pub access_log: Arc<RwLock<AccessLog>>,
 }
 
 pub fn api_port_forward_to_internal(pf: &wakezilla_common::PortForward) -> PortForward {
@@ -222,6 +224,7 @@ pub fn start_proxy_if_configured(machine: &Machine, state: &AppState) {
 
         let proxies_clone = state.proxies.clone();
         let limiter_clone = state.turn_off_limiter.clone();
+        let access_log_clone = state.access_log.clone();
         tokio::spawn(async move {
             let mut proxies = proxies_clone.write().await;
             proxies.insert(proxy_key.clone(), tx);
@@ -236,6 +239,7 @@ pub fn start_proxy_if_configured(machine: &Machine, state: &AppState) {
                 rx,
                 limiter_clone,
                 config_clone,
+                access_log_clone,
             )
             .await
             {

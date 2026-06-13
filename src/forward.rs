@@ -1,3 +1,4 @@
+use crate::access_log::{now_millis, AccessLog};
 use crate::{config::Config, web::Machine, wol};
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -8,6 +9,7 @@ use std::time::Duration;
 use tokio::io::copy_bidirectional;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
+use tokio::sync::RwLock;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
@@ -152,7 +154,9 @@ impl TurnOffLimiter {
         machine: Machine,
         mut rx: watch::Receiver<bool>,
         config: Arc<Config>,
+        access_log: Arc<RwLock<AccessLog>>,
     ) -> Result<()> {
+        let service_key = crate::access_log::service_key(&machine.mac, local_port);
         let listen_addr = format!("0.0.0.0:{}", local_port);
         let listener = TcpListener::bind(&listen_addr)
             .await
@@ -181,6 +185,11 @@ impl TurnOffLimiter {
                         "Accepted connection from {} to forward to {}",
                         client_addr, remote_addr
                     );
+
+                    access_log
+                        .write()
+                        .await
+                        .record(&service_key, now_millis());
 
                     let remote_addr_clone = remote_addr;
                     let mac_str_clone = machine.mac.clone();
@@ -301,6 +310,7 @@ impl TurnOffLimiter {
         rx: watch::Receiver<bool>,
         limiter: Arc<TurnOffLimiter>,
         config: Arc<Config>,
+        access_log: Arc<RwLock<AccessLog>>,
     ) -> Result<()> {
         // Initialize machine configuration if turn-off is enabled
         if machine.can_be_turned_off {
@@ -324,7 +334,7 @@ impl TurnOffLimiter {
         }
 
         limiter
-            .proxy_internal(local_port, remote_addr, machine, rx, config)
+            .proxy_internal(local_port, remote_addr, machine, rx, config, access_log)
             .await
     }
 }

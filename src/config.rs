@@ -215,12 +215,17 @@ pub struct StorageConfig {
     /// Path to the machines database file (default: "machines.json")
     #[serde(default = "default_machines_db_path")]
     pub machines_db_path: String,
+
+    /// Maximum access-history records kept per service (default: 2000)
+    #[serde(default = "default_max_access_records")]
+    pub max_access_records: usize,
 }
 
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
             machines_db_path: default_machines_db_path(),
+            max_access_records: default_max_access_records(),
         }
     }
 }
@@ -301,6 +306,9 @@ fn default_network_read_timeout_secs() -> u64 {
 }
 fn default_machines_db_path() -> String {
     DEFAULT_MACHINES_DB_PATH.into()
+}
+fn default_max_access_records() -> usize {
+    2000
 }
 fn default_health_check_interval_ms() -> u64 {
     30000

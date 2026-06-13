@@ -1,3 +1,4 @@
+pub mod access_log;
 pub mod api_models;
 pub mod client_server;
 pub mod config;

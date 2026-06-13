@@ -7,6 +7,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 
 use std::sync::Arc;
+use tokio::sync::RwLock;
+use wakezilla::access_log::AccessLog;
 use wakezilla::config::Config;
 use wakezilla::forward::{self, TurnOffLimiter};
 use wakezilla::web::Machine;
@@ -81,6 +83,7 @@ async fn proxy_forwards_tcp_traffic_and_can_shutdown() {
 
     let limiter = Arc::new(TurnOffLimiter::new());
     let config = Arc::new(Config::default());
+    let access_log = Arc::new(RwLock::new(AccessLog::new(2000)));
     let proxy_task = tokio::spawn(forward::TurnOffLimiter::proxy(
         local_port,
         remote_addr,
@@ -88,6 +91,7 @@ async fn proxy_forwards_tcp_traffic_and_can_shutdown() {
         rx,
         limiter,
         config,
+        access_log,
     ));
 
     // Give the proxy a moment to bind its listener

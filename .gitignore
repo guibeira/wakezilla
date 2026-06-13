@@ -3,3 +3,6 @@ frontend/target
 dist
 frontend-dist
 machines.json
+access_history.json
+docs/plans/
+docs/superpowers/plans/
