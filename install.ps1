@@ -504,4 +504,16 @@ if ($env:WAKEZILLA_INSTALL_PS1_TEST_MODE) {
     return
 }
 
-Invoke-WakezillaInstall
+try {
+    Invoke-WakezillaInstall
+}
+catch {
+    [Console]::Error.WriteLine("Wakezilla installer failed: $($_.Exception.Message)")
+    if ($_.ScriptStackTrace) {
+        [Console]::Error.WriteLine($_.ScriptStackTrace)
+    }
+    if ($_.InvocationInfo -and $_.InvocationInfo.PositionMessage) {
+        [Console]::Error.WriteLine($_.InvocationInfo.PositionMessage)
+    }
+    throw
+}
