@@ -48,15 +48,48 @@ function Get-WakezillaTarget {
     }
 
     if (-not $Architecture) {
-        $Architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+        $Architecture = Get-WindowsArchitecture
     }
 
-    switch -Regex ($Architecture.ToLowerInvariant()) {
+    switch -Regex ($Architecture.ToString().ToLowerInvariant()) {
         "^(x64|x86_64|amd64)$" { return "x86_64-pc-windows-msvc" }
         default {
             Stop-Install "platform" "unsupported Windows architecture: $Architecture"
         }
     }
+}
+
+function Get-WindowsArchitecture {
+    param(
+        [string]$RuntimeArchitecture = $null,
+        [string]$Wow64Architecture = $env:PROCESSOR_ARCHITEW6432,
+        [string]$ProcessorArchitecture = $env:PROCESSOR_ARCHITECTURE
+    )
+
+    if ($RuntimeArchitecture) {
+        return $RuntimeArchitecture
+    }
+
+    if (-not $PSBoundParameters.ContainsKey("RuntimeArchitecture")) {
+        try {
+            $detected = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+            if ($detected) {
+                return $detected.ToString()
+            }
+        }
+        catch {
+        }
+    }
+
+    if ($Wow64Architecture) {
+        return $Wow64Architecture
+    }
+
+    if ($ProcessorArchitecture) {
+        return $ProcessorArchitecture
+    }
+
+    Stop-Install "platform" "unable to detect Windows architecture"
 }
 
 function Resolve-InstallDir {

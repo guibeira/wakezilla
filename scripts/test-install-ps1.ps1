@@ -54,6 +54,8 @@ function New-TestRelease {
 function Test-TargetDetection {
     Assert-Equal "custom-target" (Get-WakezillaTarget -TargetOverride "custom-target") "target override"
     Assert-Equal "x86_64-pc-windows-msvc" (Get-WakezillaTarget -Architecture "X64") "windows x64 target"
+    Assert-Equal "AMD64" (Get-WindowsArchitecture -RuntimeArchitecture "" -Wow64Architecture "AMD64" -ProcessorArchitecture "x86") "wow64 architecture fallback"
+    Assert-Equal "AMD64" (Get-WindowsArchitecture -RuntimeArchitecture "" -Wow64Architecture "" -ProcessorArchitecture "AMD64") "processor architecture fallback"
 }
 
 function Test-ReleaseHelpers {
