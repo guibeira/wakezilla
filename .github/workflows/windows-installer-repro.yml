@@ -112,6 +112,38 @@ jobs:
           Show-WakezillaState "after reinstall success"
           & $exe --version
 
+      - name: Re-run installer while standalone process is active
+        shell: pwsh
+        env:
+          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin
+          VERSION: "0.2.5"
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Join-Path $env:WAKEZILLA_INSTALL_DIR "wakezilla.exe"
+          & $exe service stop --mode proxy
+          & $exe service stop --mode client
+          $process = Start-Process -FilePath $exe -ArgumentList "client-server" -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 2
+          "standalone_process_id=$($process.Id)"
+          try {
+            irm https://wakezilla.dev/install.ps1 | iex
+            "standalone_reinstall_succeeded=true"
+          }
+          catch {
+            "standalone_reinstall_succeeded=false"
+            "exception_type=$($_.Exception.GetType().FullName)"
+            "exception_message=$($_.Exception.Message)"
+            "script_stack_trace=$($_.ScriptStackTrace)"
+            $_ | Format-List * -Force | Out-String
+            if ($_.Exception) {
+              $_.Exception | Format-List * -Force | Out-String
+            }
+            throw
+          }
+          finally {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Cleanup
         if: always()
         shell: pwsh
