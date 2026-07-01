@@ -7,130 +7,59 @@ on:
   workflow_dispatch:
 
 jobs:
-  repro:
+  powershell51:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Print runner context
-        shell: pwsh
+      - name: Inspect public installer with Windows PowerShell
+        shell: powershell
         run: |
           $ErrorActionPreference = "Continue"
-          $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-          $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-          "whoami=$env:USERDOMAIN\$env:USERNAME"
-          "is_admin=$($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))"
-          "runner_temp=$env:RUNNER_TEMP"
           $PSVersionTable | Format-List | Out-String
 
-      - name: Fetch public installer snapshot
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          Invoke-WebRequest -Uri "https://wakezilla.dev/install.ps1" -OutFile site-install.ps1 -UseBasicParsing
-          $item = Get-Item site-install.ps1
-          "site_installer_bytes=$($item.Length)"
-          Select-String -Path site-install.ps1 -Pattern "Forwarder|ScriptBlock|Stop-WakezillaServicesForInstall|failed to replace|Restart-WakezillaServicesAfterInstall" | ForEach-Object {
-            "$($_.LineNumber):$($_.Line)"
+          $uri = "https://wakezilla.dev/install.ps1"
+          $response = Invoke-WebRequest -Uri $uri -UseBasicParsing
+          "status=$($response.StatusCode)"
+          "content_type=$($response.Headers["Content-Type"])"
+          "raw_content_length=$($response.RawContentLength)"
+          if ($null -eq $response.Content) {
+            "iwr_content_is_null=true"
+          } else {
+            "iwr_content_type=$($response.Content.GetType().FullName)"
+            "iwr_content_length=$($response.Content.Length)"
+            "iwr_first80=$($response.Content.Substring(0, [Math]::Min(80, $response.Content.Length)))"
           }
-          Get-Content -Path site-install.ps1 -TotalCount 8
 
-      - name: Install release from public command
-        shell: pwsh
-        env:
-          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin
-          VERSION: "0.2.5"
-        run: |
-          $ErrorActionPreference = "Stop"
-          "install_dir=$env:WAKEZILLA_INSTALL_DIR"
-          irm https://wakezilla.dev/install.ps1 | iex
-          $exe = Join-Path $env:WAKEZILLA_INSTALL_DIR "wakezilla.exe"
-          "& $exe --version"
-          & $exe --version
-          Get-ChildItem -Force $env:WAKEZILLA_INSTALL_DIR | Format-Table Mode,Length,FullName | Out-String
-
-      - name: Install Wakezilla Windows services
-        shell: pwsh
-        env:
-          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin
-        run: |
-          $ErrorActionPreference = "Stop"
-          $exe = Join-Path $env:WAKEZILLA_INSTALL_DIR "wakezilla.exe"
-          & $exe uninstall
-          & $exe setup --mode proxy --port 31234 --yes
-          & $exe setup --mode client --port 31235 --yes
-          Get-Service -Name wakezilla-proxy,wakezilla-client | Format-Table Name,Status,CanStop,ServiceType | Out-String
-          & $exe service status --mode proxy
-          & $exe service status --mode client
-          Test-NetConnection 127.0.0.1 -Port 31234 | Format-List | Out-String
-          Test-NetConnection 127.0.0.1 -Port 31235 | Format-List | Out-String
-
-      - name: Re-run installer while services are active
-        shell: pwsh
-        env:
-          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin
-          VERSION: "0.2.5"
-        run: |
-          $ErrorActionPreference = "Stop"
-          $exe = Join-Path $env:WAKEZILLA_INSTALL_DIR "wakezilla.exe"
-
-          function Show-WakezillaState {
-            param([string]$Label)
-            "--- state: $Label ---"
-            Get-Service -Name wakezilla-proxy,wakezilla-client -ErrorAction SilentlyContinue |
-              Format-Table Name,Status,CanStop,ServiceType | Out-String
-            Get-CimInstance Win32_Process -Filter "name = 'wakezilla.exe'" -ErrorAction SilentlyContinue |
-              Select-Object ProcessId,ParentProcessId,CommandLine,ExecutablePath |
-              Format-List | Out-String
-            if (Test-Path $exe) {
-              Get-Item $exe | Format-List FullName,Length,LastWriteTime | Out-String
+          $irm = Invoke-RestMethod -Uri $uri
+          if ($null -eq $irm) {
+            "irm_is_null=true"
+          } else {
+            "irm_type=$($irm.GetType().FullName)"
+            if ($irm -is [string]) {
+              "irm_length=$($irm.Length)"
+              "irm_first80=$($irm.Substring(0, [Math]::Min(80, $irm.Length)))"
+            } else {
+              "irm_count=$($irm.Count)"
+              "irm_preview=$($irm | Select-Object -First 5 | Out-String)"
             }
           }
 
-          Show-WakezillaState "before reinstall"
-
-          try {
-            irm https://wakezilla.dev/install.ps1 | iex
-            "reinstall_succeeded=true"
-          }
-          catch {
-            "reinstall_succeeded=false"
-            "exception_type=$($_.Exception.GetType().FullName)"
-            "exception_message=$($_.Exception.Message)"
-            "script_stack_trace=$($_.ScriptStackTrace)"
-            $_ | Format-List * -Force | Out-String
-            if ($_.Exception) {
-              $_.Exception | Format-List * -Force | Out-String
-            }
-            Show-WakezillaState "after reinstall failure"
-            throw
-          }
-
-          Show-WakezillaState "after reinstall success"
-          & $exe --version
-
-      - name: Re-run installer while standalone process is active
-        shell: pwsh
+      - name: Reproduce public pipe with Windows PowerShell
+        shell: powershell
         env:
-          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin
+          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin-ps51
           VERSION: "0.2.5"
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Join-Path $env:WAKEZILLA_INSTALL_DIR "wakezilla.exe"
-          & $exe service stop --mode proxy
-          & $exe service stop --mode client
-          $process = Start-Process -FilePath $exe -ArgumentList "client-server" -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 2
-          "standalone_process_id=$($process.Id)"
           try {
             irm https://wakezilla.dev/install.ps1 | iex
-            "standalone_reinstall_succeeded=true"
-          }
-          catch {
-            "standalone_reinstall_succeeded=false"
+            "pipe_result=success"
+          } catch {
+            "pipe_result=failure"
             "exception_type=$($_.Exception.GetType().FullName)"
             "exception_message=$($_.Exception.Message)"
             "script_stack_trace=$($_.ScriptStackTrace)"
@@ -140,20 +69,26 @@ jobs:
             }
             throw
           }
-          finally {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-          }
 
-      - name: Cleanup
+      - name: Reproduce local file with Windows PowerShell
         if: always()
-        shell: pwsh
+        shell: powershell
         env:
-          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin
+          WAKEZILLA_INSTALL_DIR: ${{ runner.temp }}\wakezilla-bin-local-ps51
+          VERSION: "0.2.5"
         run: |
-          $ErrorActionPreference = "Continue"
-          $exe = Join-Path $env:WAKEZILLA_INSTALL_DIR "wakezilla.exe"
-          if (Test-Path $exe) {
-            & $exe uninstall
+          $ErrorActionPreference = "Stop"
+          try {
+            Get-Content -Raw .\install.ps1 | iex
+            "local_pipe_result=success"
+          } catch {
+            "local_pipe_result=failure"
+            "exception_type=$($_.Exception.GetType().FullName)"
+            "exception_message=$($_.Exception.Message)"
+            "script_stack_trace=$($_.ScriptStackTrace)"
+            $_ | Format-List * -Force | Out-String
+            if ($_.Exception) {
+              $_.Exception | Format-List * -Force | Out-String
+            }
+            throw
           }
-          Get-Service -Name wakezilla-proxy,wakezilla-client -ErrorAction SilentlyContinue |
-            Format-Table Name,Status | Out-String
