@@ -4,7 +4,14 @@ resolver = "2"
 
 [features]
 default = []
-desktop-tray = ["dep:arboard", "dep:open", "dep:png", "dep:tray-icon", "dep:winit"]
+desktop-tray = [
+    "dep:arboard",
+    "dep:base64",
+    "dep:open",
+    "dep:png",
+    "dep:tray-icon",
+    "dep:winit",
+]
 
 [profile.wasm-release]
 inherits = "release"
@@ -79,6 +86,7 @@ sha2 = "0.10"
 flate2 = "1.0"
 tar = "0.4"
 tempfile = "3"
+base64 = { version = "0.22.1", optional = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "musl"))))'.dependencies]
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"], optional = true }

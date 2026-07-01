@@ -5772,6 +5772,7 @@ dependencies = [
  "askama",
  "askama_axum",
  "axum",
+ "base64 0.22.1",
  "clap",
  "config 0.14.1",
  "crossterm",

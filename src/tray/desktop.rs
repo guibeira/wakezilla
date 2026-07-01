@@ -1,5 +1,7 @@
 use crate::{config, service, update};
 use anyhow::{anyhow, Context, Result};
+#[cfg(target_os = "windows")]
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
@@ -246,6 +248,7 @@ impl TrayApp {
         let result = open_wakezilla_command(
             true,
             &[
+                "--no-update-check",
                 "service",
                 "logs",
                 "--mode",
@@ -484,7 +487,13 @@ fn run_service_control(mode: service::Mode, control: ServiceControl) -> Result<S
 
     open_wakezilla_command(
         true,
-        &["service", control.verb(), "--mode", mode.service_arg()],
+        &[
+            "--no-update-check",
+            "service",
+            control.verb(),
+            "--mode",
+            mode.service_arg(),
+        ],
         true,
     )?;
     Ok(format!(
@@ -742,13 +751,18 @@ fn open_macos_terminal(parts: &[String], keep_open: bool) -> Result<()> {
 #[cfg(target_os = "windows")]
 fn open_command(elevated: bool, exe: &Path, args: &[&str], keep_open: bool) -> Result<()> {
     let ps_command = powershell_invocation(exe, args);
+    let encoded_command = powershell_encoded_command(&ps_command);
+    let mut powershell_args = vec!["-NoProfile", "-ExecutionPolicy", "Bypass"];
+    if keep_open {
+        powershell_args.push("-NoExit");
+    }
+    powershell_args.push("-EncodedCommand");
+    powershell_args.push(&encoded_command);
+    let argument_list = powershell_array_literal(&powershell_args);
 
     if elevated {
-        let no_exit = if keep_open { "-NoExit " } else { "" };
-        let argument_list = format!("{no_exit}-Command {}", powershell_quote(&ps_command));
         let script = format!(
-            "Start-Process powershell -Verb RunAs -ArgumentList {}",
-            powershell_quote(&argument_list)
+            "Start-Process -FilePath powershell -Verb RunAs -ArgumentList @({argument_list})"
         );
         let mut command = Command::new("powershell");
         command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]);
@@ -757,14 +771,11 @@ fn open_command(elevated: bool, exe: &Path, args: &[&str], keep_open: bool) -> R
             .spawn()
             .context("failed to open elevated PowerShell")?;
     } else {
-        let mut command = Command::new("cmd");
-        command.args(["/C", "start", "", "powershell"]);
-        if keep_open {
-            command.arg("-NoExit");
-        }
+        let script = format!("Start-Process -FilePath powershell -ArgumentList @({argument_list})");
+        let mut command = Command::new("powershell");
+        command.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]);
         command
-            .arg("-Command")
-            .arg(&ps_command)
+            .arg(&script)
             .spawn()
             .context("failed to open PowerShell")?;
     }
@@ -805,6 +816,24 @@ fn powershell_invocation(exe: &Path, args: &[&str]) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     format!("& {invocation}")
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_encoded_command(command: &str) -> String {
+    let bytes: Vec<u8> = command
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    BASE64_STANDARD.encode(bytes)
+}
+
+#[cfg(target_os = "windows")]
+fn powershell_array_literal(values: &[&str]) -> String {
+    values
+        .iter()
+        .map(|value| powershell_quote(value))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(target_os = "windows")]
