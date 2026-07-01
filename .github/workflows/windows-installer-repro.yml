@@ -93,7 +93,7 @@ jobs:
           Show-WakezillaState "before reinstall"
 
           try {
-            iex "& { $(Get-Content -Raw .\install.ps1) }"
+            irm https://wakezilla.dev/install.ps1 | iex
             "reinstall_succeeded=true"
           }
           catch {
@@ -126,7 +126,7 @@ jobs:
           Start-Sleep -Seconds 2
           "standalone_process_id=$($process.Id)"
           try {
-            iex "& { $(Get-Content -Raw .\install.ps1) }"
+            irm https://wakezilla.dev/install.ps1 | iex
             "standalone_reinstall_succeeded=true"
           }
           catch {
