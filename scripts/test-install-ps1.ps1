@@ -172,6 +172,59 @@ function Start-Service {
     $script:StartedServices += $Name
 }
 
+function New-MockProcess {
+    param(
+        [int]$ProcessId,
+        [string]$ExecutablePath
+    )
+
+    [pscustomobject]@{
+        ProcessId      = $ProcessId
+        ExecutablePath = $ExecutablePath
+        Running        = $true
+    }
+}
+
+function Get-CimInstance {
+    param(
+        [string]$ClassName,
+        [string]$Filter,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [object[]]$Remaining
+    )
+
+    if ($ClassName -ne "Win32_Process" -or -not $script:MockProcesses) {
+        return @()
+    }
+
+    if ($Filter -match "^name = 'wakezilla\.exe'$") {
+        return @($script:MockProcesses.Values | Where-Object { $_.Running })
+    }
+
+    if ($Filter -match "^ProcessId = (\d+)$") {
+        $id = [int]$Matches[1]
+        if ($script:MockProcesses.ContainsKey($id) -and $script:MockProcesses[$id].Running) {
+            return $script:MockProcesses[$id]
+        }
+    }
+
+    @()
+}
+
+function Stop-Process {
+    param(
+        [int]$Id,
+        [switch]$Force,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [object[]]$Remaining
+    )
+
+    $script:StoppedProcesses += $Id
+    if ($script:MockProcesses -and $script:MockProcesses.ContainsKey($Id)) {
+        $script:MockProcesses[$Id].Running = $false
+    }
+}
+
 function Test-ServiceStopAndRestartHelpers {
     $script:MockServices = @{
         "wakezilla-proxy"  = New-MockService -Name "wakezilla-proxy" -Status "Running"
@@ -194,10 +247,39 @@ function Test-ServiceStopAndRestartHelpers {
     Assert-Equal "wakezilla-proxy" $script:StartedServices[0] "started service name"
 }
 
+function Test-ProcessStopHelper {
+    $tempDir = New-Item -ItemType Directory -Force -Path (Join-Path ([System.IO.Path]::GetTempPath()) "wakezilla-ps1-process-$PID")
+    try {
+        $targetExe = Join-Path $tempDir "wakezilla.exe"
+        $otherExe = Join-Path $tempDir "other\wakezilla.exe"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $otherExe) | Out-Null
+        Set-Content -NoNewline -Path $targetExe -Value "target"
+        Set-Content -NoNewline -Path $otherExe -Value "other"
+
+        $script:MockProcesses = @{
+            1001 = New-MockProcess -ProcessId 1001 -ExecutablePath $targetExe
+            1002 = New-MockProcess -ProcessId 1002 -ExecutablePath $otherExe
+        }
+        $script:StoppedProcesses = @()
+
+        Stop-WakezillaProcessesForInstall -ExecutablePath $targetExe
+
+        Assert-Equal 1 $script:StoppedProcesses.Count "stopped process count"
+        Assert-Equal 1001 $script:StoppedProcesses[0] "stopped target process"
+        Assert-Equal $false $script:MockProcesses[1001].Running "target process stopped"
+        Assert-Equal $true $script:MockProcesses[1002].Running "other process left running"
+    }
+    finally {
+        $script:MockProcesses = $null
+        Remove-Item -Recurse -Force $tempDir
+    }
+}
+
 Test-TargetDetection
 Test-ReleaseHelpers
 Test-ChecksumHelpers
 Test-ArchiveAndInstall
 Test-ServiceStopAndRestartHelpers
+Test-ProcessStopHelper
 
 Write-Host "install.ps1 tests passed"

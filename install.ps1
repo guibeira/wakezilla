@@ -291,6 +291,83 @@ function Stop-WakezillaServicesForInstall {
     $restartServices
 }
 
+function Test-SamePath {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    if (-not $Left -or -not $Right) {
+        return $false
+    }
+
+    try {
+        $Left = [System.IO.Path]::GetFullPath($Left)
+    }
+    catch {
+    }
+
+    try {
+        $Right = [System.IO.Path]::GetFullPath($Right)
+    }
+    catch {
+    }
+
+    $Left.TrimEnd("\") -ieq $Right.TrimEnd("\")
+}
+
+function Get-WakezillaProcessesForInstall {
+    param([string]$ExecutablePath)
+
+    if (-not (Test-Path $ExecutablePath)) {
+        return @()
+    }
+
+    try {
+        @(Get-CimInstance Win32_Process -Filter "name = '$ExeName'" -ErrorAction Stop |
+            Where-Object { Test-SamePath $_.ExecutablePath $ExecutablePath })
+    }
+    catch {
+        Write-Warn "failed to inspect running $ExeName processes before install: $($_.Exception.Message)"
+        @()
+    }
+}
+
+function Stop-WakezillaProcessesForInstall {
+    param([string]$ExecutablePath)
+
+    $processes = @(Get-WakezillaProcessesForInstall -ExecutablePath $ExecutablePath)
+    if ($processes.Count -eq 0) {
+        return
+    }
+
+    foreach ($process in $processes) {
+        try {
+            Write-Info "stopping running $ExeName process $($process.ProcessId) before updating..."
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        }
+        catch {
+            Stop-Install "process_stop" "failed to stop running $ExeName process $($process.ProcessId) before updating $ExecutablePath. Stop Wakezilla manually and retry. Details: $($_.Exception.Message)"
+        }
+    }
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    foreach ($process in $processes) {
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $running = Get-CimInstance Win32_Process -Filter "ProcessId = $($process.ProcessId)" -ErrorAction SilentlyContinue
+            if (-not $running) {
+                break
+            }
+            Start-Sleep -Milliseconds 250
+        }
+
+        $stillRunning = Get-CimInstance Win32_Process -Filter "ProcessId = $($process.ProcessId)" -ErrorAction SilentlyContinue
+        if ($stillRunning) {
+            Stop-Install "process_stop" "running $ExeName process $($process.ProcessId) did not exit before updating $ExecutablePath"
+        }
+    }
+}
+
 function Install-WakezillaBinary {
     param(
         [string]$Source,
@@ -304,6 +381,8 @@ function Install-WakezillaBinary {
     if (Test-Path $temporary) {
         Remove-Item -Force $temporary
     }
+
+    Stop-WakezillaProcessesForInstall -ExecutablePath $destination
 
     try {
         Copy-Item -Force $Source $temporary
