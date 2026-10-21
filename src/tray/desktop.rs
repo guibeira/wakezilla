@@ -876,7 +876,7 @@ fn rgba_from_png_frame(bytes: &[u8], color_type: png::ColorType) -> Result<Vec<u
         png::ColorType::Rgba => Ok(bytes.to_vec()),
         png::ColorType::Rgb => {
             let mut rgba = Vec::with_capacity(bytes.len() / 3 * 4);
-            for chunk in bytes.chunks_exact(3) {
+            for chunk in bytes.as_chunks::<3>().0 {
                 rgba.extend_from_slice(chunk);
                 rgba.push(255);
             }
@@ -891,7 +891,7 @@ fn rgba_from_png_frame(bytes: &[u8], color_type: png::ColorType) -> Result<Vec<u
         }
         png::ColorType::GrayscaleAlpha => {
             let mut rgba = Vec::with_capacity(bytes.len() / 2 * 4);
-            for chunk in bytes.chunks_exact(2) {
+            for chunk in bytes.as_chunks::<2>().0 {
                 rgba.extend_from_slice(&[chunk[0], chunk[0], chunk[0], chunk[1]]);
             }
             Ok(rgba)
