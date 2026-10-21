@@ -13,44 +13,25 @@ use wakezilla::proxy_server::{api_routes, build_router};
 use wakezilla::web::{AppState, Machine as InternalMachine};
 use wakezilla::Machine;
 
-struct EnvVarGuard {
-    key: &'static str,
-}
-
-impl EnvVarGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        std::env::set_var(key, value);
-        Self { key }
-    }
-}
-
-impl Drop for EnvVarGuard {
-    fn drop(&mut self) {
-        std::env::remove_var(self.key);
-    }
-}
-
-fn setup_state(temp_dir: &TempDir) -> (AppState, EnvVarGuard) {
+fn setup_state(temp_dir: &TempDir) -> AppState {
     let db_path = temp_dir.path().join("machines.json");
-    let guard = EnvVarGuard::set(
-        "WAKEZILLA__STORAGE__MACHINES_DB_PATH",
-        db_path.to_str().expect("temp path should be valid utf-8"),
-    );
-    let config = Config::from_env().unwrap_or_default();
+    let mut config = Config::default();
+    config.storage.machines_db_path = db_path
+        .to_str()
+        .expect("temp path should be valid utf-8")
+        .to_owned();
 
     let machines =
         Arc::new(RwLock::new(Vec::<InternalMachine>::new())) as Arc<RwLock<Vec<InternalMachine>>>;
     let proxies = Arc::new(RwLock::new(HashMap::new()));
-    let state = AppState {
+    AppState {
         machines,
         proxies,
         config: Arc::new(config),
         turn_off_limiter: Arc::new(TurnOffLimiter::new()),
         monitor_handle: Arc::new(std::sync::Mutex::new(None)),
         access_log: Arc::new(RwLock::new(wakezilla::access_log::AccessLog::new(2000))),
-    };
-
-    (state, guard)
+    }
 }
 
 fn sample_machine() -> InternalMachine {
@@ -72,7 +53,7 @@ fn sample_machine() -> InternalMachine {
 #[tokio::test]
 async fn access_history_returns_service_entries() {
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-    let (state, _guard) = setup_state(&temp_dir);
+    let state = setup_state(&temp_dir);
 
     let mut machine = sample_machine();
     machine.port_forwards = vec![wakezilla::web::PortForward {
@@ -120,7 +101,7 @@ async fn access_history_returns_service_entries() {
 #[tokio::test]
 async fn add_machine_accepts_null_port_forward_name() {
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-    let (state, _guard) = setup_state(&temp_dir);
+    let state = setup_state(&temp_dir);
     let app = build_router(state.clone()).merge(api_routes(state.clone()));
 
     let response = app
@@ -153,7 +134,7 @@ async fn add_machine_accepts_null_port_forward_name() {
 #[tokio::test]
 async fn api_get_machine_details_returns_existing_machine() {
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-    let (state, _guard) = setup_state(&temp_dir);
+    let state = setup_state(&temp_dir);
 
     {
         let mut machines = state.machines.write().await;
@@ -202,7 +183,7 @@ async fn api_get_machine_details_returns_existing_machine() {
 #[tokio::test]
 async fn wake_endpoint_rejects_invalid_mac() {
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-    let (state, _guard) = setup_state(&temp_dir);
+    let state = setup_state(&temp_dir);
     let app = build_router(state.clone()).merge(api_routes(state.clone()));
 
     let response = app
@@ -235,7 +216,7 @@ async fn wake_endpoint_rejects_invalid_mac() {
 #[tokio::test]
 async fn add_and_delete_machine_via_api_updates_state() {
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-    let (state, _guard) = setup_state(&temp_dir);
+    let state = setup_state(&temp_dir);
     let app = build_router(state.clone()).merge(api_routes(state.clone()));
 
     let add_response = app
@@ -298,7 +279,7 @@ async fn add_and_delete_machine_via_api_updates_state() {
 #[tokio::test]
 async fn add_machine_with_invalid_data_returns_errors() {
     let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
-    let (state, _guard) = setup_state(&temp_dir);
+    let state = setup_state(&temp_dir);
     let app = build_router(state.clone()).merge(api_routes(state.clone()));
 
     let response = app

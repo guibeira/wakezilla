@@ -1,0 +1,32 @@
+name: Dependency security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: RustSec audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
+
+      - name: Audit workspace dependencies
+        run: cargo audit --file Cargo.lock
+
+      - name: Audit standalone frontend dependencies
+        if: always()
+        run: cargo audit --file frontend/Cargo.lock

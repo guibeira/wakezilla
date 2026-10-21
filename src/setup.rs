@@ -331,7 +331,10 @@ fn run_wizard(args: SetupArgs) -> Result<(Mode, u16)> {
 fn wizard_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     args: SetupArgs,
-) -> Result<(Mode, u16)> {
+) -> Result<(Mode, u16)>
+where
+    B::Error: Send + Sync + 'static,
+{
     let mut w = Wizard::new(&args);
 
     loop {
@@ -610,7 +613,10 @@ fn pick_mode(modes: &[Mode]) -> Result<Mode> {
 fn pick_mode_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     modes: &[Mode],
-) -> Result<Mode> {
+) -> Result<Mode>
+where
+    B::Error: Send + Sync + 'static,
+{
     let mut selected = 0usize;
 
     loop {

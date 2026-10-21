@@ -871,7 +871,6 @@ fn macos_white_mascot_rgba(rgba: &mut [u8], width: u32, height: u32) {
     }
 }
 
-#[allow(clippy::chunks_exact_to_as_chunks)]
 fn rgba_from_png_frame(bytes: &[u8], color_type: png::ColorType) -> Result<Vec<u8>> {
     match color_type {
         png::ColorType::Rgba => Ok(bytes.to_vec()),
