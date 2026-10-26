@@ -1021,6 +1021,105 @@ mod tests {
         }
     }
 
+    fn fwd(local_port: u16, target_port: u16) -> wakezilla_common::PortForward {
+        wakezilla_common::PortForward {
+            name: None,
+            local_port,
+            target_port,
+        }
+    }
+
+    fn candidate_machine(
+        mac: &str,
+        forwards: Vec<wakezilla_common::PortForward>,
+    ) -> wakezilla_common::Machine {
+        wakezilla_common::Machine {
+            name: "Candidate".to_string(),
+            mac: mac.to_string(),
+            ip: "10.0.0.2".to_string(),
+            port_forwards: forwards,
+            ..Default::default()
+        }
+    }
+
+    fn registered_machine(mac: &str, local_ports: &[u16]) -> Machine {
+        let mut machine = sample_machine();
+        machine.mac = mac.to_string();
+        machine.port_forwards = local_ports
+            .iter()
+            .map(|port| web::PortForward {
+                name: "svc".to_string(),
+                local_port: *port,
+                target_port: 80,
+            })
+            .collect();
+        machine
+    }
+
+    #[test]
+    fn validate_machine_config_rejects_duplicate_local_ports_within_one_machine() {
+        let machine = candidate_machine("AA:BB:CC:DD:EE:FF", vec![fwd(2020, 80), fwd(2020, 443)]);
+
+        let errors = validate_machine_config(&machine, &[], None).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        let messages = errors.get("port_forwards").expect("port_forwards error");
+        assert!(messages[0].contains("unique local ports"));
+    }
+
+    #[test]
+    fn validate_machine_config_rejects_local_port_used_by_another_machine() {
+        let existing = registered_machine("11:22:33:44:55:66", &[2020]);
+        let machine = candidate_machine("AA:BB:CC:DD:EE:FF", vec![fwd(2020, 80)]);
+
+        let errors = validate_machine_config(&machine, &[existing], None).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        let messages = errors.get("port_forwards").expect("port_forwards error");
+        assert!(messages[0].contains("already assigned to another machine"));
+    }
+
+    #[test]
+    fn validate_machine_config_rejects_new_service_on_port_owned_by_another_machine_when_updating()
+    {
+        let existing_a = registered_machine("11:22:33:44:55:66", &[2020]);
+        let existing_b = registered_machine("AA:BB:CC:DD:EE:FF", &[3000]);
+        let machine = candidate_machine("AA:BB:CC:DD:EE:FF", vec![fwd(3000, 80), fwd(2020, 80)]);
+
+        let errors = validate_machine_config(
+            &machine,
+            &[existing_a, existing_b],
+            Some("AA:BB:CC:DD:EE:FF"),
+        )
+        .unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        let messages = errors.get("port_forwards").expect("port_forwards error");
+        assert!(messages[0].contains("already assigned to another machine"));
+    }
+
+    #[test]
+    fn validate_machine_config_accepts_unique_ports_across_machines() {
+        let existing = registered_machine("11:22:33:44:55:66", &[2020]);
+        let machine = candidate_machine("AA:BB:CC:DD:EE:FF", vec![fwd(3000, 80)]);
+
+        assert!(validate_machine_config(&machine, &[existing], None).is_ok());
+    }
+
+    #[test]
+    fn validate_machine_config_ignores_ports_of_machine_being_replaced() {
+        let existing_a = registered_machine("11:22:33:44:55:66", &[2020]);
+        let existing_b = registered_machine("AA:BB:CC:DD:EE:FF", &[3000]);
+        let machine = candidate_machine("AA:BB:CC:DD:EE:FF", vec![fwd(3000, 80)]);
+
+        assert!(validate_machine_config(
+            &machine,
+            &[existing_a, existing_b],
+            Some("AA:BB:CC:DD:EE:FF"),
+        )
+        .is_ok());
+    }
+
     #[tokio::test]
     async fn get_machine_details_api_returns_not_found() {
         let state = state_with_machines(vec![]);
