@@ -1,0 +1,24 @@
+name: Star notification
+
+on:
+  watch:
+    types: [started]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram message
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          USER: ${{ github.event.sender.login }}
+          REPO: ${{ github.repository }}
+          STARS: ${{ github.event.repository.stargazers_count }}
+        run: |
+          curl -sS --fail-with-body -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT_ID}" \
+            --data-urlencode "text=⭐ ${USER} deu estrela em ${REPO} (total: ${STARS})
+          https://github.com/${USER}"
