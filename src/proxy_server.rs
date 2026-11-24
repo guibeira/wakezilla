@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{Host, Json as JsonExtract, Path, Query, State},
+    extract::{ConnectInfo, Host, Json as JsonExtract, Path, Query, State},
     http::{header, uri::Authority, Method, Request, Response, StatusCode},
     response::{IntoResponse, Json, Redirect},
     routing::{delete, get, post, put},
@@ -227,9 +227,12 @@ pub async fn start_with_shutdown(
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
     info!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await?;
 
     // Persist access history on shutdown so the last interval isn't lost.
     let snapshot = state.access_log.read().await.clone();
@@ -858,7 +861,13 @@ async fn execute_remote_turn_off(state: &AppState, mac: &str) -> (axum::http::St
 
     if let Some(machine) = machine {
         if let Some(port) = machine.turn_off_port {
-            info!("Sending turn-off request to {}:{}", machine.ip, port);
+            info!(
+                trigger = "manual_api",
+                machine_mac = %machine.mac,
+                target_ip = %machine.ip,
+                target_port = port,
+                "Sending shutdown request"
+            );
             match forward::turn_off_remote_machine(
                 &machine.ip.to_string(),
                 port,
@@ -896,7 +905,16 @@ async fn execute_remote_turn_off(state: &AppState, mac: &str) -> (axum::http::St
 async fn api_turn_off_remote_machine(
     State(state): State<AppState>,
     Path(mac): Path<String>,
+    peer: Option<ConnectInfo<SocketAddr>>,
 ) -> impl IntoResponse {
+    let peer_addr = peer.map(|ConnectInfo(addr)| addr.to_string());
+    info!(
+        peer_addr = peer_addr.as_deref().unwrap_or("unknown"),
+        machine_mac = mac.as_str(),
+        method = "POST",
+        trigger = "manual_api",
+        "Received manual shutdown request"
+    );
     let (status, message) = execute_remote_turn_off(&state, &mac).await;
     (
         status,
@@ -1153,7 +1171,7 @@ mod tests {
     async fn api_turn_off_remote_machine_returns_json_message() {
         let state = state_with_machines(vec![]);
         let response =
-            api_turn_off_remote_machine(State(state), Path("AA:BB:CC:DD:EE:FF".to_string()))
+            api_turn_off_remote_machine(State(state), Path("AA:BB:CC:DD:EE:FF".to_string()), None)
                 .await
                 .into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);

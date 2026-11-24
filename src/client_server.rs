@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::{
-    extract::State,
+    extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json},
     routing::{get, post},
@@ -55,9 +55,12 @@ pub async fn start_with_shutdown(
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
     info!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await?;
 
     Ok(())
 }
@@ -81,14 +84,32 @@ async fn secure_health_check(
 
 async fn turn_off_machine(
     State(state): State<ClientState>,
+    peer: Option<ConnectInfo<SocketAddr>>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    let peer_addr = peer.map(|ConnectInfo(addr)| addr.to_string());
+    let peer_addr = peer_addr.as_deref().unwrap_or("unknown");
     if state.shutdown_key.is_some() {
         if let Err(status) = authenticate(&state, "POST", "/machines/turn-off", &headers).await {
+            warn!(
+                peer_addr,
+                method = "POST",
+                path = "/machines/turn-off",
+                status = status.as_u16(),
+                "Rejected shutdown request"
+            );
             return (status, "Unauthorized".to_string());
         }
     }
 
+    warn!(
+        peer_addr,
+        method = "POST",
+        path = "/machines/turn-off",
+        authenticated = state.shutdown_key.is_some(),
+        delay_secs = 5,
+        "Accepted shutdown request"
+    );
     system::shutdown_machine();
     (StatusCode::OK, "Shutting down this machine".to_string())
 }
