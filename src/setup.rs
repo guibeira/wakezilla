@@ -19,7 +19,12 @@ pub struct SetupArgs {
     pub port: Option<u16>,
 
     /// HMAC key used to authenticate shutdown requests (client mode only).
-    #[arg(long, value_name = "KEY", help_heading = "Setup Options")]
+    #[arg(
+        long,
+        value_name = "KEY",
+        allow_hyphen_values = true,
+        help_heading = "Setup Options"
+    )]
     pub key: Option<String>,
 
     /// Skip the overwrite confirmation prompt (for non-interactive use).
