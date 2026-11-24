@@ -245,3 +245,20 @@ fn setup_accepts_a_valid_client_key() {
     assert_eq!(args.key.as_deref(), Some(key.as_str()));
     assert!(!format!("{args:?}").contains(&key));
 }
+
+#[test]
+fn setup_accepts_client_keys_starting_with_hyphens() {
+    for key in [
+        "-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "--AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        wakezilla::shutdown_auth::validate_key(key).expect("valid URL-safe key fixture");
+        let args = SetupArgs::try_parse_from([
+            "setup", "--mode", "client", "--port", "3001", "--key", key, "--yes",
+        ])
+        .expect("hyphen-prefixed client key should parse");
+
+        assert_eq!(args.key.as_deref(), Some(key));
+        assert!(args.yes);
+    }
+}
