@@ -176,9 +176,14 @@ impl TurnOffLimiter {
                             if time_since_last_request > config.window {
                                 // Use swap to atomically check and set triggered flag
                                 if !config.triggered.swap(true, Ordering::SeqCst) {
-                                    debug!(
-                                        "Machine {} (IP: {}) has been inactive for {:?}, exceeding window of {:?}",
-                                        mac, config.ip, time_since_last_request, config.window
+                                    info!(
+                                        trigger = "inactivity_timeout",
+                                        machine_mac = %mac,
+                                        target_ip = %config.ip,
+                                        target_port = config.turn_off_port,
+                                        inactivity_limit_secs = config.window.as_secs(),
+                                        inactive_secs = time_since_last_request.as_secs(),
+                                        "Scheduling shutdown after inactivity limit"
                                     );
                                     Some((
                                         config.ip,
@@ -255,8 +260,11 @@ impl TurnOffLimiter {
                     let (mut inbound, client_addr) = result
                         .context("Failed to accept incoming connection")?;
                     info!(
-                        "Accepted connection from {} to forward to {}",
-                        client_addr, remote_addr
+                        peer_addr = %client_addr,
+                        local_port,
+                        target_addr = %remote_addr,
+                        machine_mac = %machine.mac,
+                        "Accepted forwarded connection"
                     );
 
                     access_log
