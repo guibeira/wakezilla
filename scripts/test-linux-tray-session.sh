@@ -53,7 +53,7 @@ xfconf-query --channel xfce4-panel --property /panels/panel-1/position-locked --
 xfconf-query --channel xfce4-panel --property /panels/panel-1/length --create --type uint --set 100
 xfconf-query --channel xfce4-panel --property /panels/panel-1/size --create --type uint --set 32
 xfconf-query --channel xfce4-panel --property /panels/panel-1/plugin-ids --create --force-array --type int --set 1
-xfconf-query --channel xfce4-panel --property /plugins/plugin-1 --create --type string --set sntray
+xfconf-query --channel xfce4-panel --property /plugins/plugin-1 --create --type string --set systray
 xfconf-query --channel xfce4-panel --list --verbose >"$artifact_dir/xfce4-panel-config.log"
 
 export DISPLAY=:99
